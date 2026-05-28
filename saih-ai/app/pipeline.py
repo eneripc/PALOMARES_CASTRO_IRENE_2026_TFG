@@ -1,279 +1,87 @@
-import numpy as np
-import pandas as pd
-import re
-import unicodedata
 import os
-from openpyxl.utils import get_column_letter
-from openpyxl.styles import PatternFill, Font, Alignment, Color
+import re
+import tempfile
+import unicodedata
 from copy import copy
-import glob
-import requests
-import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
-# CONTEXTO CORPORATIVO Y PARAMETRIZACIÓN GEOGRÁFICA (BARCELÓ HOTEL GROUP)
+import numpy as np
+import pandas as pd
+from openpyxl.styles import Alignment, Color, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
-# Sets de sociedades organizadas por regiones operativas para la asignación de umbrales de riesgo
-# por terminos de seguridad solo se pueden ver los de las UEs tratadas en el proyecto 
+from .hotel_map import resolve_sociedades
+from .sap_client import fbl1n
 
-# Sets de sociedades organizadas por regiones operativas para la asignación de umbrales de riesgo
-latam = set( ["5600","5601","5602","5603","5604","6300","7000","P300","5606", 
-              "7400", "7401","7601","7800","7801","J400","7402" ])
 
-emea = set([""])
 
-# Diccionario de mapeo estructural: Vincula Sociedades Legales de SAP con sus respectivas Unidades de Explotación (UE/Hoteles)
+latam = set( ["5001", "5002","5003","5004","5005","5006","5007","5100","5200","5300","5301","5601", "5602","5603","5604","5605","5606","5700","5800","5900","6000","6100","6200", "7200","7300","7400","7402","7601","7800","7801","7900","8100","8201", "M300",
+              "H800", "H900","J400","M000","M600","N000","N100","N300","N400","N500","N600","N700","N800", "P000","SV01"])
+
+emea = set(["6400","6800","6700","7100","P400","AJ04","M301","M601","M800","M800","E700","N401","E200","E400","N701","1001","1131","1301","1401","1901","1902","1903","1904","1907","1908","2001","2101","2200","2201","2203","2204","2205","2206","2207","2208","2209",
+            "2300","2301","2302","2303","2304","2305","2306","2307","2501","2601","2701","2704","2705","2706","2707","2708","2901","3200","3201","4301","4302","5500","8300","8303","8304","8504","8505","8506","8700","8701","8802","8803","8804","8805","8806","8807",
+            "8808","8809","8810","8811","8812","8813","8814","8815","8816","8817","8819","8820","8821","8822","8823","8824","8825","8826","8827","8829","8831","8832","8833","8837","8838","8839","8840", "8901","8902","8903","8904","8905","8906","8907","8908","9001",
+            "9002","9003","9004","9006","9007","9101","9301","9600","9800","A301","A302","A303","A801","A802","AD01","AJ00","AJ02","AJ03","CK01","AK01","AL00","AL01","AL02","AL03","AN01","BF00","BF01","BF02","BJ01","BL00","BL01","BM01","BU01","BX01","CB01","H000",
+            "MG01","H900","J100","M400","M900","NB01"])
+
 map_soc_UE = {"5600":"Maya","5601":"Maya","5602":"Maya","5603":"Maya","5604":"Maya","6300":"Maya","7000":"Maya","P300":"Maya","5606":"Maya",
             "7400":"Bavaro","7401":"Bavaro","7601":"Bavaro","7800":"Bavaro","7801":"Bavaro","J400":"Bavaro","7402":"Bavaro",
-             } # Aqui se añadirian todas las sociedades y su correspondiente Unidad de Explotación
-
-# --- Parámetros globales de infraestructura de red ---
-IS_DEV = False
-url = "" # información confidencial
-user ="" # información confidencial
-password ="" # información confidencial
-
-# FUNCIONES PRINCIPALES DEL PIPELINE DE AUDITORÍA
-
-def fbl1n(data, carpeta=str, base_dir ="."):
-    """
-        Fase ETL 1: Extracción de datos transaccionales mediante servicios SOAP corporativos.
-        Replica la lógica de la transacción nativa SAP FBL1N (Partidas Individuales de Proveedores).
-        
-        Parámetros:
-        -----------
-        data : list of tuples
-            Contiene los parámetros de consulta de SAP: 
-            (VARIANTE, CLASE, STATUS, FECHA_LOW, FECHA_HIGH, SOCIEDAD)
-        carpeta : str
-            Nombre del directorio de destino para almacenar los archivos CSV parciales.
-        base_dir : str
-            Ruta base del sistema de archivos local o del contenedor cloud.
-            
-        Retorna:
-        --------
-        pd.DataFrame
-            Dataset consolidado (Master) con todas las sociedades y periodos consultados.
-        """
-    
-    out_dir = os.path.join(base_dir, carpeta)
-    os.makedirs(out_dir, exist_ok=True)
-
-
-    dfs = []
-
-    for strVariante, strClase, strStatus, fecha_partidas_low, fecha_partidas_high, sociedad in data:
-        # Construcción del sobre XML SOAP según el contrato técnico de la API SAP 
-        inputxml = f"""
-                <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:sap-com:document:sap:rfc:functions">
-                    <soapenv:Header/>
-                    <soapenv:Body>
-                        <urn:Z_FBL1N_WS>
-                            <CLASE>{strClase}</CLASE>
-                            <CUENTA_HIGH></CUENTA_HIGH>
-                            <CUENTA_LOW></CUENTA_LOW>
-                            <FECHA_PARTIDAS_HIGH>{fecha_partidas_high}</FECHA_PARTIDAS_HIGH>
-                            <FECHA_PARTIDAS_LOW>{fecha_partidas_low}</FECHA_PARTIDAS_LOW>
-                            <SOCIEDAD>{sociedad}</SOCIEDAD>
-                            <STATUS>{strStatus}</STATUS>
-                            <VARIANTE>{strVariante}</VARIANTE>
-                            <IT_CME></IT_CME>
-                            <IT_ITEMS></IT_ITEMS>
-                            <IT_SOCIEDADGL></IT_SOCIEDADGL>
-                        </urn:Z_FBL1N_WS>
-                    </soapenv:Body>
-                </soapenv:Envelope>
-            """
-
-        # Orquestación síncrona HTTP POST hacia el servidor central de SAP
-        response = requests.post(
-            url,
-            data=inputxml.encode("utf-8"),
-            headers={"Content-Type": "text/xml; charset=utf-8"},
-            auth=(user, password),
-            verify = False
-        )
-
-        if response.status_code != 200:
-            print("Error en la llamada SOAP:", response.status_code, response.text)
-            exit()
-
-        # Parseo del árbol XML y conversión a formato tabular
-        root = ET.fromstring(response.text)
-        rows = []
-        for item in root.findall(".//item"):
-            row = {child.tag.upper(): child.text for child in item}
-            rows.append(row)
-
-        # Dataset crudo temporal equivalente a la tabla temporal del procedimiento almacenado
-        df_tmp = pd.DataFrame(rows)
-
-        # Inicialización del DataFrame estandarizado (FACT_Pagos)
-        df_fact = pd.DataFrame()
-        df_fact["CodHotel_Auditoria"] = -1
-        df_fact["ID_PETICION"] = -1
-        df_fact["ID_ETL"] = -1
-        df_fact["ID_Ejecucion"] = -1
-        df_fact["FyH_Ejecucion"] = datetime.now()
-
-
-        # Mapeo de columnas desde #tmp_FBL1N hacia FACT_Pagos
-        mapeo = {
-            "ANLN1": "Act_fijo",
-            "AUGBL": "Doc_comp",
-            "AUGDT": "Compens",
-            "BLART": "Clase",
-            "BLDAT": "Fecha_doc",
-            "BSCHL": "CT",
-            "BUDAT": "Fe_contab",
-            "BUKRS": "Sociedad",
-            "BWWR2": "ImpteML2",
-            "BWWR3": "ImpteML3",
-            "BWWRT": "ImpteML",
-            "CCBTC": "Liquid",
-            "EBELN": "Doc_compr",
-            "FAEDT": "Venc_neto",
-            "FILKD": "Subsid",
-            "GJAHR": "Anio",
-            "GKONT": "Cta_CP",
-            "HKONT": "LibrMay",
-            "HWAE2": "ML2",
-            "HWAE3": "ML3",
-            "HWAER": "ML",
-            "KIDNO": "Refer_pago",
-            "KOART": "ClCta",
-            "KONTO": "Cuenta",
-            "KOSTL": "Ce_coste",
-            "MONAT": "Ej_mes",
-            "REBZG": "Factura",
-            "BUZEI": "Posicion",
-            "U_ALTKT": "Cta_grp",
-            "U_BELNR_FISCAL": "N_doc",
-            "U_CHECF": "Hasta",
-            "U_CPUDT": "Registrado",
-            "U_TCODE": "CodT",
-            "U_USNAM": "Usuario",
-            "U_ZZTG": "Ti",
-            "U_MSKS": "IO",
-            "VBEWA": "ClMo",
-            "VBUND": "SocGLA",
-            "VERZN": "Demora",
-            "WAERS": "Mon",
-            "WRSHB": "ImpteMD",
-            "XARCH": "Ár",
-            "XBLNR": "Referencia",
-            "XPYPR": "Orden pago",
-            "XREF1": "Clv_ref_1",
-            "XREF3": "Pos",
-            "XSTRP": "L",
-            "ZALDT": "Fecha_pago",
-            "ZLSCH": "VP",
-            "ZLSPR": "BP",
-            "ZTERM": "CPag",
-            "ZZEILE": "Observaciones",
-            "SGTXT": "Texto",
-            "ZZNAME1": "Nombre1"
-        }
-
-        for k, v in mapeo.items():
-            if k.upper() in df_tmp.columns:
-                df_fact[v] = df_tmp[k.upper()]
-            else:
-                df_fact[v] = None
-
-        # Inyección de variables de control temporal de auditoría
-        df_fact["PARAM_FechaClave"] = pd.to_datetime(fecha_partidas_high, errors="coerce")
-        df_fact["Fecha Clave"] = df_fact["PARAM_FechaClave"]
-
-        df_fact["CLASI_Clasificacion"] = "[NO CLASIFICADO]"
-        df_fact["Asignacion"] = df_tmp["ZUONR"] if "ZUONR" in df_tmp.columns else None
-        
-        # Guardar dataset indexado parcial por sociedad y fecha (Garantiza idempotencia)
-        FACT_pagos = f"{strVariante}_{sociedad}_{fecha_partidas_high}.csv".replace("'", "")
-        out_fact = os.path.join(out_dir,FACT_pagos)
-        df_fact.to_csv(out_fact, index=False, encoding="utf-8-sig")
-
-        dfs.append(df_fact)
-   
-    if not dfs:
-        return pd.DataFrame()
-
-    # Consolidación final mediante concatenación en memoria (Lógica Batch)
-    df_master = pd.concat(dfs, ignore_index=True) if len(dfs) > 1 else dfs[0]
-
-    if len(dfs) > 1:
-        nombre_carpeta = carpeta.lower().replace(" ", "_")
-        master_name = f"FACT_MASTER_{nombre_carpeta}.csv"
-        df_master.to_csv(os.path.join(out_dir, master_name), index=False, encoding="utf-8-sig")
-
-    return df_master
+            "8504":"Sants",
+            "3200":"Punta Umbria Beach","3201":"Punta Umbria Beach",
+            "1001": "Illetas Albatros" } # añadir todas las sociedades
 
 def preprocess(data):
-    """
-    Fase ETL 2: Limpieza estructural, normalización semántica e ingeniería de características.
-    Prepara la matriz multidimensional con  las líneas transaccionales puras y las totales.
-    
-    Parámetros:
-    -----------
-    data : pd.DataFrame o str/Path
-        Estructura de datos en memoria o ruta física del archivo CSV/Excel de origen.
-        
-    Retorna:
-    --------
-    pd.DataFrame
-        Dataset ordenado cronológicamente con las nuevas variables calculadas (Antigüedad, Demora, Delta).
-    """
-        
+
     if isinstance(data, pd.DataFrame):
         df = data.copy()
-        
-    if isinstance(data, (str, Path)):
+    elif isinstance(data, (str, Path)):
         path = Path(data)
         if path.suffix.lower() == ".csv":
             df = pd.read_csv(path)
         elif path.suffix.lower() in (".xlsx", ".xls"):
             df = pd.read_excel(path, engine="openpyxl")
+        else:
+            raise ValueError(f"Formato no soportado: {path.suffix}")
+    else:
+        raise TypeError("data debe ser un DataFrame o una ruta a CSV/Excel")
 
-    # Eliminación de artefactos y columnas sin valor analítico generadas por Excel
-    if 'Unnamed: 0' in df.columns:
-        df.drop(columns = ['Unnamed: 0'], inplace = True)
+    if "Unnamed: 0" in df.columns:
+        df.drop(columns=["Unnamed: 0"], inplace=True)
 
     columnas_vacias = df.columns[df.isna().all()]
     df.drop(columns=columnas_vacias, inplace=True)
 
     def _norm(s: str) -> str:
-        """Elimina acentos, caracteres especiales y unifica separadores a snake_case."""
         s = "" if s is None else str(s)
         s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
         s = s.strip().lower()
         s = re.sub(r"[^\w]+", "_", s)
         s = re.sub(r"_+", "_", s).strip("_")
         return s
-    
-    # Resolución del alcance geográfico: Enlace relacional con la Unidad de Explotación (Hotel)
-    df["UE"] = df["Sociedad"].astype(str).str.upper().map(map_soc_UE).fillna("OTRO")
-    df = df[['UE'] + [c for c in df.columns if c != 'UE']]
 
-    def standardize_columns_simple(df):
-        """Mapea listas de alias lingüísticos heterogéneos a nombres de columnas estándar."""
-        df = df.copy()
-        df = df.loc[:, ~df.columns.duplicated()].copy()
-        current = {_norm(c): c for c in df.columns} # Mapa: nombre normalizado -> nombre real en df
+    if "Sociedad" in df.columns:
+        df["UE"] = df["Sociedad"].astype(str).str.upper().map(map_soc_UE).fillna("OTRO")
+        df = df[["UE"] + [c for c in df.columns if c != "UE"]]
 
-        # Alias ordenados por prioridad
+    def standardize_columns_simple(df_in: pd.DataFrame) -> pd.DataFrame:
+        df_in = df_in.copy()
+        df_in = df_in.loc[:, ~df_in.columns.duplicated()].copy()
+        current = {_norm(c): c for c in df_in.columns}
+
         aliases = {
-            "Fecha Clave": ["Fecha Clave", "Fecha_informe", "PARAM_FechaClave", "Fecha informe", "FechaInforme", "Fecha Informe", 'Fecha_informe'],
-            "UE": ['ue','UE','Unidad de Explotación', 'unidad de explotación'],
+            "Fecha Clave": ["Fecha Clave", "Fecha_informe", "PARAM_FechaClave", "Fecha informe", "FechaInforme", "Fecha Informe", "Fecha_informe"],
+            "UE": ["ue", "UE", "Unidad de Explotación", "unidad de explotación"],
             "Sociedad": ["Sociedad", "CodHotel_Auditoria", "Soc", "SocGLA"],
             "Cuenta": ["Cuenta", "Proveedor", "Vendor", "Cta_CP", "Cta.CP", "Cta_CP"],
             "Nombre1": ["Nombre1", "Nombre", "NomProveedor", "Proveedor_nombre"],
             "N_doc": ["Nºdoc.", "Nºdoc", "N_doc", "N_doc_", "N_doc.", "Ndoc", "Documento", "Doc", "Doc.Fiscal", "Doc_Fiscal", "Doc_comp", "Doc_compr"],
-            "Registrado": [ "Registrado", "PostingDate", "Fecha_registro"],
+            "Registrado": ["Registrado", "PostingDate", "Fecha_registro"],
             "Ej_mes": ["Ej./mes", "Ej_mes", "Ej mes", "Periodo", "Anio", "Año", "Anio_mes"],
             "Fe_contab": ["Fe_contab", "Fe.contab.", "Fe.contab", "Fecha_contable"],
-            "Venc_neto": [ "Venc_neto", "Venc.neto", "Vencimiento", "Fecha_vencimiento", "Vto_neto"],
-            "Fecha_doc": [ "Fecha_doc", "Fecha doc.", "Fecha documento", "DocDate", "FechaDoc"],
+            "Venc_neto": ["Venc_neto", "Venc.neto", "Vencimiento", "Fecha_vencimiento", "Vto_neto"],
+            "Fecha_doc": ["Fecha_doc", "Fecha doc.", "Fecha documento", "DocDate", "FechaDoc"],
             "Fecha_pago": ["Fecha_pago", "Fecha pago", "FechaPago", "Fecha de pago"],
             "Antigüedad": ["Antigüedad", "Antiguedad", "Antiguedad_dias", "AgrupacionAntiguedadMaxima"],
             "Texto": ["Texto", "Texto cab. Documento", "Texto cab Documento", "Texto_cab_Documento", "Observaciones"],
@@ -282,7 +90,7 @@ def preprocess(data):
             "ML": ["ML", "Mon.", "Mon", "Moneda", "Currency", "ClMo"],
             "Demora": ["Demora", "Mora", "Delay", "Demora_dias"],
             "BP": ["BP", "CME", "Ind.CME", "Ind CME", "Clave CME", "Operación especial", "Operacion especial", "CP"],
-            "Factura":['Factura', 'Fact'],
+            "Factura": ["Factura", "Fact"],
         }
 
         rename = {}
@@ -295,38 +103,32 @@ def preprocess(data):
                 if cand_norm in current:
                     chosen = current[cand_norm]
                     break
-            if chosen is None:
-                continue
-            if std_name in used_targets:  # Evitar colisiones: no renombrar 2 columnas distintas al mismo estándar
+            if chosen is None or std_name in used_targets:
                 continue
 
             rename[chosen] = std_name
             used_targets.add(std_name)
 
-        df = df.rename(columns=rename)
-
-        return df
+        return df_in.rename(columns=rename)
 
     df = standardize_columns_simple(df)
 
-    # Ordenación temporal y contable estricta para garantizar consistencia en auditoría externa
-    df = df.sort_values(by=["Fecha Clave","UE","Sociedad", "Cuenta", "Fe_contab", "N_doc"], ascending=[ True,True,True, True, True, True]).reset_index(drop=True)
+    sort_cols = [c for c in ["Fecha Clave", "UE", "Sociedad", "Cuenta", "Fe_contab", "N_doc"] if c in df.columns]
+    if sort_cols:
+        df = df.sort_values(by=sort_cols, ascending=[True] * len(sort_cols)).reset_index(drop=True)
 
     def cpag_to_days(series: pd.Series, default_days: int = 0) -> pd.Series:
-        """"Parsea cadenas alfanuméricas de condiciones de pago de SAP a enteros (días)."""
         if series is None:
             return pd.Series(default_days)
 
         s = series.astype(str).str.upper().str.strip()
-
         days = s.str.extract(r"(\d+)", expand=False)
         days = pd.to_numeric(days, errors="coerce").fillna(default_days).astype(int)
-
         return days
-    
-    # Estandarización y tipado de variables temporales (Modo fecha estricto)
-    for col in ["Fecha_doc","Fe_contab","Registrado","Fecha_pago",'Venc_neto', 'Fecha Clave']:
-        df[col] = pd.to_datetime(df[col], errors="coerce").dt.normalize()
+
+    for col in ["Fecha_doc", "Fe_contab", "Registrado", "Fecha_pago", "Venc_neto", "Fecha Clave"]:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors="coerce").dt.normalize()
 
     if "CPag" in df.columns:
         cpag_days = cpag_to_days(df["CPag"], default_days=0)
@@ -335,75 +137,56 @@ def preprocess(data):
 
     cpag_td = pd.to_timedelta(cpag_days, unit="D")
 
-    # FEATURE ENGINEERING)
-
-    # Antigüedad = Fecha informe - (Fe_contab + CPag)
-    if "Antigüedad" not in df.columns:
+    if "Antigüedad" not in df.columns and {"Fe_contab", "Fecha Clave"}.issubset(df.columns):
         due_teorico = df["Fe_contab"] + cpag_td
         df["Antigüedad"] = (df["Fecha Clave"] - due_teorico).dt.days
-  
-    # Demora = Antigüedad - (Venc_neto - Fe_contab)
-    if 'Demora' not in df.columns:
-        df['vt menos contable'] = (df["Venc_neto"] - df["Fe_contab"]).dt.days
-        df['vt menos contable'].fillna(0)
-        df['Demora'] = df['Antigüedad'] - df['vt menos contable']
-        df['Demora'].fillna(0)
 
-    # Delta = Fecha_Registro_Sistema - Fecha_Emisión_Documento
-    if 'Registrado' in df.columns and 'Fecha_doc' in df.columns:
-        # Manipulación de fechas (cuántos días cambió la fecha “de documento” respecto a la real)
-        df["Delta_fecha_doc"] = (df["Registrado"] - df['Fecha_doc'] ).dt.days
-        df["Delta_fecha_doc"].fillna(0)
+    if "Demora" not in df.columns and {"Venc_neto", "Fe_contab", "Antigüedad"}.issubset(df.columns):
+        df["vt menos contable"] = (df["Venc_neto"] - df["Fe_contab"]).dt.days
+        df["vt menos contable"] = df["vt menos contable"].fillna(0)
+        df["Demora"] = df["Antigüedad"] - df["vt menos contable"]
+        df["Demora"] = df["Demora"].fillna(0)
 
-    # ESTRATEGIA DE AGRUPACIÓN
+    if "Registrado" in df.columns and "Fecha_doc" in df.columns:
+        df["Delta_fecha_doc"] = (df["Registrado"] - df["Fecha_doc"]).dt.days
+        df["Delta_fecha_doc"] = df["Delta_fecha_doc"].fillna(0)
 
-    totales = (df.groupby(["Fecha Clave","UE","Sociedad", "Cuenta","Nombre1"], as_index=False)["ImpteML"].sum().rename(columns={"ImpteML": "ImpteML"}))
+    total_keys = [c for c in ["Fecha Clave", "UE", "Sociedad", "Cuenta", "Nombre1"] if c in df.columns]
+    if total_keys and "ImpteML" in df.columns:
+        totales = df.groupby(total_keys, as_index=False)["ImpteML"].sum()
 
-    # Construir filas TOTAL con las mismas columnas que df
-    total_rows = pd.DataFrame(columns=df.columns)
+        total_rows = pd.DataFrame(columns=df.columns)
+        for c in total_keys + ["ImpteML"]:
+            if c in totales.columns:
+                total_rows[c] = totales[c]
 
-    total_rows["Fecha Clave"]  = totales["Fecha Clave"]
-    total_rows["UE"]  = totales["UE"]
-    total_rows["Sociedad"]  = totales["Sociedad"]
-    total_rows["Cuenta"]    = totales["Cuenta"]
-    total_rows["Nombre1"] = totales["Nombre1"]
-    total_rows["ImpteML"] = totales["ImpteML"]
+        df["_is_total"] = 0
+        total_rows["_is_total"] = 1
 
-    # Indicador binario analítico: 0 = Partida individual de línea, 1 = Fila agregada TOTAL
-    df["_is_total"] = 0
-    total_rows["_is_total"] = 1
+        sort_total_cols = [c for c in ["Fecha Clave", "UE", "Sociedad", "Cuenta", "_is_total", "Fe_contab", "N_doc"] if c in df.columns or c == "_is_total"]
+        df = (
+            pd.concat([df, total_rows], ignore_index=True, sort=False)
+            .sort_values(by=sort_total_cols, ascending=[True] * len(sort_total_cols), na_position="last")
+            .reset_index(drop=True)
+        )
+    else:
+        if "_is_total" not in df.columns:
+            df["_is_total"] = 0
 
-    # Concatenar y ordenar: mismo proveedor + _is_total al final
-    df = (pd.concat([df, total_rows], ignore_index=True, sort=False).sort_values(by=["Fecha Clave","UE","Sociedad", "Cuenta", "_is_total", "Fe_contab", "N_doc"], ascending=[True, True,True, True, True, True, True], na_position="last").reset_index(drop=True))
+    if "Fecha_pago" in df.columns:
+        df["Fecha_pago"] = pd.to_datetime(df["Fecha_pago"], errors="coerce")
+        mask_sentinela = df["Fecha_pago"].notna() & (df["Fecha_pago"] <= pd.Timestamp("1900-01-02"))
+        df.loc[mask_sentinela, "Fecha_pago"] = pd.NaT
 
-    # Limpieza de fechas centinela por errores de desbordamiento en exportaciones de SAP (1899-1900)
-    df["Fecha_pago"] = pd.to_datetime(df["Fecha_pago"], errors="coerce")
-    mask_sentinela = df["Fecha_pago"].notna() & (df["Fecha_pago"] <= pd.Timestamp("1900-01-02"))     # Limpia 1899-12-30, 1899-12-31, 1900-01-01, 1900-01-02
-    df.loc[mask_sentinela, "Fecha_pago"] = pd.NaT
+    if "Sociedad" in df.columns:
+        df.loc[df["Sociedad"].isin(latam) & df["_is_total"].eq(0), "antig"] = 180
+        df.loc[df["Sociedad"].isin(emea) & df["_is_total"].eq(0), "antig"] = 365
 
-    # Asignación de umbrales internos corporativos condicionados por región geográfica (EMEA vs LATAM)
-    df.loc[df["Sociedad"].isin(latam) & df["_is_total"].eq(0), "antig"] = 180
-    df.loc[df["Sociedad"].isin(emea) & df["_is_total"].eq(0), "antig"] = 365
-    df["antig"] = pd.to_numeric(df["antig"], errors="coerce").fillna(365).astype(int)
+    df["antig"] = pd.to_numeric(df.get("antig"), errors="coerce").fillna(365).astype(int)
 
     return df
 
 def casuistica(df: pd.DataFrame):
-    """
-    Fase 3: Motor de Reglas de Negocio Contables.
-    Aplica de forma determinista los criterios del Manual de Auditoría Interna de Barceló
-    para clasificar partidas, identificar desviaciones materiales y construir los textos de solicitudes.
-    
-    Parámetros:
-    -----------
-    df : pd.DataFrame
-        Dataset preprocesado con variables homogéneas.
-        
-    Retorna:
-    --------
-    pd.DataFrame
-        Dataset enriquecido con las columnas ['Casuística', 'Análisis', 'Solicitud'] formalizadas.
-    """
 
     columnas = ['Fecha Clave','UE','Sociedad', 'Cuenta','Nombre1', 'N_doc',
        'Registrado', 'Ej_mes', 'Fe_contab', 'Venc_neto', 'Fecha_doc',
@@ -411,13 +194,16 @@ def casuistica(df: pd.DataFrame):
 
     df = df[[c for c in columnas if c in df.columns]].copy()
 
+    # =========================
     # 0) Normalizaciones básicas
-
+    # =========================
     df["ImpteML"]  = pd.to_numeric(df.get("ImpteML"), errors="coerce")
     df["Antigüedad"] = pd.to_numeric(df.get("Antigüedad"), errors="coerce")
 
-    # Normalizar _is_total  
+    # Normalizar _is_total (muy importante)
     if "_is_total" not in df.columns:
+        # Inferencia conservadora: si no hay Nºdoc o Clase, lo tratamos como total-like
+        # (ajústalo según tu extract real)
         doc_col = "N_doc" if "N_doc." in df.columns else None
         clase_col = "Clase" if "Clase" in df.columns else None
         if doc_col and clase_col:
@@ -430,12 +216,12 @@ def casuistica(df: pd.DataFrame):
         df["_is_total"] = pd.to_numeric(df["_is_total"], errors="coerce").fillna(0).astype(int)
         df["_is_total"] = df["_is_total"].clip(0, 1)
 
-    # Inicialización de nuevas columnas
+    # Inicialización
     df["Casuística"] = pd.NA
     df["Análisis"]   = pd.NA
     df["Solicitud"]  = pd.NA
 
-    # Limpieza de registros redundantes huérfanos de información temporal
+    # Eliminar filas total-like preexistentes (si procede)
     cols_check = [c for c in ["N_doc", "Clase", "Fe_contab", "Fecha_doc", "Registrado", "Venc_neto"] if c in df.columns]
     if cols_check:
         mask_total_like = (df["_is_total"].eq(0) & df["ImpteML"].notna() & df[cols_check].isna().all(axis=1))
@@ -451,7 +237,7 @@ def casuistica(df: pd.DataFrame):
     have_keys = all(k in df.columns for k in keys)
 
     
-    # Recálculo geométrico/contable del saldo real acumulado mapeado en la fila TOTAL del proveedor
+    # Recalcular saldo total en fila TOTAL
     if have_keys:
         saldo_grp = df.loc[mask_partidas].groupby(keys, dropna=False)["ImpteML"].sum()
         idx = pd.MultiIndex.from_frame(df[keys])
@@ -460,11 +246,11 @@ def casuistica(df: pd.DataFrame):
     else:
         idx = pd.Index([None]*len(df))
 
-    # Signos de las partidas
+    # Signos
     mask_deud = df["ImpteML"] > 0
     mask_acre = df["ImpteML"] < 0
 
-    # Inicialización de máscaras de envejecimiento de saldos basados en umbrales de control interno
+    # Antigüedad
     antig = df["antig"]
     mask_deud_antigua = mask_deud & (df["Antigüedad"] > 31)
     mask_acre_antigua = mask_acre & (df["Antigüedad"] > antig)
@@ -477,16 +263,19 @@ def casuistica(df: pd.DataFrame):
     mask_pago    = clase.isin(["KZ", "ZP"])
     mask_kg      = clase.eq("KG")
 
+    # =========================
     # 1) ANÁLISIS SALDO TOTAL
-
+    # =========================
     df.loc[mask_total & (df["ImpteML"] < 0), "Análisis"] = "Ok saldo total acreedor"
     df.loc[mask_total & (df["ImpteML"] > 0), "Análisis"] = "Saldo total deudor"
     df.loc[mask_total & (df["ImpteML"] == 0), "Análisis"] = "Ok saldado"
 
+    # =========================
     # 2) CASUÍSTICA PARTIDAS
-    # Cuentas 407 (Anticipos) y 4001 (Retenciones) se aíslan para evitar sesgar el análisis de deudores ordinarios
-    SPECIAL_LM = ["40700001", "40010001"]   
+    # =========================
 
+    SPECIAL_LM = ["40700001", "40010001"]  # 407 anticipos, 40010001 retenciones
+    
     lm= df["LibrMay"].astype(str).str.strip()
     mask_lm = lm.isin(SPECIAL_LM)
     df.loc[mask_partidas & mask_lm, 'Casuística'] = 'Anticipo / Retención'
@@ -495,8 +284,13 @@ def casuistica(df: pd.DataFrame):
     df.loc[mask_partidas & mask_acre & df["Casuística"].isna(), "Casuística"] = "Acreedora"
     df.loc[mask_partidas & mask_deud & df["Casuística"].isna(), "Casuística"] = "Deudora"
 
-    # 3) ANÁLISIS PARTIDAS INDIVIDUALES
 
+    # Z6 como casuística específica (no solo acreedoras)
+    #df.loc[mask_partidas & mask_z6, "Casuística"] = "Z6 finiquitos/reembolsos"
+
+    # =========================
+    # 3) ANÁLISIS PARTIDAS
+    # =========================
     # Acreedoras antiguas = incidencia
     df.loc[mask_partidas & mask_acre_antigua, "Análisis"] = "Acreedora antigua"
 
@@ -507,6 +301,7 @@ def casuistica(df: pd.DataFrame):
     abono_antiguo = mask_partidas & mask_deud_antigua & mask_abono
 
     # Para decidir si un abono antiguo está "cubierto" por facturas posteriores pendientes:
+    # - requiere Fe.contab. y (opcional) Fecha pago
     requiere_fechas_partida = ("Fe_contab" in df.columns) and ("Clase" in df.columns) and have_keys
 
     if requiere_fechas_partida:
@@ -546,6 +341,7 @@ def casuistica(df: pd.DataFrame):
             if abonos.empty:
                 return res
 
+            # Chequeo por abono: existe factura con fc > fc_abono
             fact_dates = fact_pend["_fc"].sort_values()
             for i, row in abonos.iterrows():
                 res.loc[i] = (fact_dates > row["_fc"]).any()
@@ -576,16 +372,21 @@ def casuistica(df: pd.DataFrame):
     # Z6: siempre revisar (si no hay análisis asignado ya)
     df.loc[mask_partidas & mask_z6 & df["Análisis"].isna(), "Análisis"] = "Revisar Z6 (finiquitos/reembolsos)"
 
+    
     #deudora antigua
     df.loc[mask_partidas & mask_deud_antigua, 'Análisis'] = 'Deudora Antigua'
 
     # Resto de partidas no analizadas
     df.loc[mask_partidas & df["Análisis"].isna(), "Análisis"] = "Ok"
+
     df.loc[mask_partidas & mask_lm, 'Análisis'] = ""
-
-    # 4) FEATURES A NIVEL PROVEEDOR
-
-    if have_keys:
+    # =========================
+    # 4) FEATURES por proveedor
+    # FEATURES por proveedor (flags a nivel proveedor, mapeados a cada fila)
+    if not have_keys:
+        hay_deud = hay_acre = hay_deud_ant = hay_acre_ant = hay_z6 = hay_z6_acre = hay_kg_deud = hay_pago = todo_abonos_rec = pd.Series(False, index=df.index)
+    else:
+        # ---- Excluir anticipos/retenciones de FEATURES ----
         SPECIAL_LM = {"40700001", "40010001"}
         lm = df["LibrMay"].astype(str).str.strip() if "LibrMay" in df.columns else pd.Series("", index=df.index)
         bp = df["BP"].astype(str).str.strip() if "BP" in df.columns else pd.Series("", index=df.index)
@@ -635,8 +436,9 @@ def casuistica(df: pd.DataFrame):
 
     saldo_deudor = df["ImpteML"] > 0
 
+    # =========================
     # 5) SOLICITUDES a nivel proveedor (TOTAL)
-
+    # =========================
     # A1/A2: acreedoras antiguas
     mA1 = mask_total & df["Solicitud"].isna() & hay_acre_ant & hay_pago
     df.loc[mA1, "Solicitud"] = "Acreedoras antiguas y existen pagos contabilizados: solicitar su compensación."
@@ -656,7 +458,7 @@ def casuistica(df: pd.DataFrame):
     df.loc[mD, "Solicitud"] = "Saldo deudor con partidas deudoras y acreedoras: solicitar compensación."
 
 
-    # NAunque el saldo total sea acreedor, si hay deudoras con incidencia, debe pedirse explicación
+    # NUEVO: aunque el saldo total sea acreedor, si hay deudoras con incidencia, debe pedirse explicación
     # Detectamos si dentro del proveedor hay alguna partida deudora con "Incidencia" o Z6 "revisar"
     if have_keys:
         incid_part = df.loc[mask_partidas, ["Análisis"] + keys].copy()
@@ -670,7 +472,7 @@ def casuistica(df: pd.DataFrame):
         mF = mask_total & df["Solicitud"].isna() & hay_deud
         df.loc[mF, "Solicitud"] = "Revisar partidas deudoras"
 
-    # Lógica analítica para cuentas saldadas netas cero
+    # Si saldado => no solicitud
     mask_saldado = mask_total & df["Análisis"].eq("Ok saldado")
 
     # 1) Si está saldado y NO hay nada que revisar => sin solicitud
@@ -682,36 +484,36 @@ def casuistica(df: pd.DataFrame):
 
     # Si ya existía solicitud, prefijar (sin pisar)
     mask_prefijo = mask_saldado_con_revision & df["Solicitud"].notna()
-    df.loc[mask_prefijo, "Solicitud"] = ("Saldo total saldado; no obstante, existen partidas a revisar. " + df.loc[mask_prefijo, "Solicitud"].astype(str))
+    df.loc[mask_prefijo, "Solicitud"] = (
+        "Saldo total saldado; no obstante, existen partidas a revisar. "
+        + df.loc[mask_prefijo, "Solicitud"].astype(str)
+    )
 
     # Si está vacía y hay Z6, sí generamos solicitud por Z6 (opcional pero útil)
     m_saldado_z6 = mask_saldado_con_revision & df["Solicitud"].isna() & hay_z6
-    df.loc[m_saldado_z6, "Solicitud"] = "Saldo total saldado; no obstante, existen partidas con clase Z6 a revisar. Solicitar soporte y confirmar tratamiento/compensación."
+    df.loc[m_saldado_z6, "Solicitud"] = (
+        "Saldo total saldado; no obstante, existen partidas con clase Z6 a revisar. "
+        "Solicitar soporte y confirmar tratamiento/compensación."
+    )
 
+    # Si ya existía solicitud, solo prefijamos el contexto (sin pisar lo anterior)
+    mask_prefijo = mask_saldado_con_revision & df["Solicitud"].notna()
+    df.loc[mask_prefijo, "Solicitud"] = (
+        "Saldo total saldado; no obstante, existen partidas a revisar. "
+        + df.loc[mask_prefijo, "Solicitud"].astype(str)
+    )
+
+
+    # Limpieza final
 
     return df
 
 def anticipos_proveedores(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Módulo Especializado en el Análisis de Anticipos y Retenciones en Garantía.
-    Audita las cuentas contables de alto riesgo operativo mediante NLP analítico heurístico básico.
-    
-    Parámetros:
-    -----------
-    df : pd.DataFrame
-        Dataset base unificado.
-        
-    Retorna:
-    --------
-    pd.DataFrame
-        Subconjunto estructurado filtrado únicamente con proveedores con anticipos o retenciones vigentes.
-    """
-
     df = df.copy()
 
-    # 1) Normalizar columnas 
-    keys_full = ["Fecha Clave", "Sociedad", "Cuenta", "Nombre1"]    
-    keys_prov = ["Fecha Clave", "Sociedad", "Cuenta"]             
+    # 1) Normalizar columnas ------------------------------------------------------------------------------------------------------------
+    keys_full = ["Fecha Clave", "Sociedad", "Cuenta", "Nombre1"]   # por si lo necesitas para reporte
+    keys_prov = ["Fecha Clave", "Sociedad", "Cuenta"]             # clave robusta para proveedor
 
     cols_fecha_all = ["Fecha Clave", "Fe_contab", "Venc_neto", "Fecha_doc", "Fecha_pago", "Registrado"]
     for c in cols_fecha_all:
@@ -722,15 +524,16 @@ def anticipos_proveedores(df: pd.DataFrame) -> pd.DataFrame:
         if c in df.columns:
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
+    # Si no existe _is_total, asumimos todo partida
     if "_is_total" not in df.columns:
         df["_is_total"] = 0
     df["_is_total"] = pd.to_numeric(df["_is_total"], errors="coerce").fillna(0).astype(int).clip(0, 1)
 
-    # 2) Procuradores 
+    # 2) Procuradores ------------------------------------------------------------------------------------------------------------
     palabras_procurador = ["procurador", "pleito", "judicial", "abogado", "demanda", "litigio", "juzgado"]
     patron_proc = re.compile("|".join(map(re.escape, palabras_procurador)), flags=re.IGNORECASE)
 
-    # 3) Identificar proveedores con anticipo/retención 
+    # 3) Identificar proveedores con anticipo/retención --------------------------------------------------------------------------
     mask_total = df["_is_total"].eq(1)
     mask_partida = df["_is_total"].eq(0)
 
@@ -747,8 +550,13 @@ def anticipos_proveedores(df: pd.DataFrame) -> pd.DataFrame:
     # Retenciones
     mask_lm_retencion = mask_partida & lm.eq("40010001")
 
-    # Partidas relevantes ( para detectar proveedores objetivo)
+    # Partidas relevantes (solo para detectar proveedores objetivo)
     df_part_relevante = df.loc[mask_lm_anticipo| mask_lm_retencion].copy()
+
+    print(f"{len(df.loc[mask_lm_anticipo])} partidas detectadas como anticipos (407)")
+    print(f"{len(df.loc[mask_lm_retencion])} partidas detectadas como retenciones (40010001)")
+
+    # Proveedores objetivo (clave robusta)
     proveedores_obj = df_part_relevante[keys_prov].drop_duplicates()
 
     # Traemos TODAS las operaciones (partidas + totales) de esos proveedores
@@ -765,12 +573,12 @@ def anticipos_proveedores(df: pd.DataFrame) -> pd.DataFrame:
     mask_total2 = df2["_is_total"].eq(1)
     mask_partida2 = df2["_is_total"].eq(0)
 
-    # 4) Inicialización columnas salida 
+    # 4) Inicialización columnas salida ----------------------------------------------------------------------------------------------
     df2["Etiqueta"] = pd.NA
     df2["Análisis"] = pd.NA
     df2["Solicitud"] = pd.NA
 
-    # 5) Señales objetivables 
+    # 5) Señales objetivables ---------------------------------------------------------------------------------------------------------
     if "Venc_neto" in df2.columns and "Fecha Clave" in df2.columns:
         mask_vencido = df2["Venc_neto"].notna() & df2["Fecha Clave"].notna() & (df2["Venc_neto"] < df2["Fecha Clave"])
     else:
@@ -791,7 +599,7 @@ def anticipos_proveedores(df: pd.DataFrame) -> pd.DataFrame:
     sin_texto2 = txt2.eq("") | txt2.str.lower().eq("nan")
     procurador2 = txt2.str.contains(patron_proc, na=False)
 
-    # 6) Casuística a nivel partida 
+    # 6) Casuística a nivel partida ---------------------------------------------------------------------------------------------------
     df2.loc[is_anticipo & df2["Etiqueta"].isna(), "Etiqueta"] = "Anticipos a proveedores"
     df2.loc[is_retencion & df2["Etiqueta"].isna(), "Etiqueta"] = "Retenciones en Garantía"
 
@@ -808,25 +616,38 @@ def anticipos_proveedores(df: pd.DataFrame) -> pd.DataFrame:
     # 6.2 Anticipos - vencidos según vencimiento SAP
     m_venc = is_anticipo & mask_vencido
     df2.loc[m_venc & df2["Análisis"].isna(), "Análisis"] = "Anticipo fuera de plazo (según vencimiento SAP)"
-    df2.loc[m_venc & df2["Solicitud"].isna(), "Solicitud"] = "Revisar: vencimiento en SAP anterior a la Fecha del informe. Confirmar que el anticipo sigue en plazo según contrato/pedido y que el bien/servicio continúa pendiente de recibir. Aportar contrato/pedido, autorización del pago y soporte de seguimiento."
+    df2.loc[m_venc & df2["Solicitud"].isna(), "Solicitud"] = (
+        "Revisar: vencimiento en SAP anterior a la Fecha del informe. Confirmar que el anticipo sigue en plazo según contrato/pedido "
+        "y que el bien/servicio continúa pendiente de recibir. Aportar contrato/pedido, autorización del pago y soporte de seguimiento."
+    )
 
     # 6.3 Anticipos - trazabilidad insuficiente
     m_traza = is_anticipo & sin_texto2
     df2.loc[m_traza & df2["Análisis"].isna(), "Análisis"] = "Anticipo con trazabilidad insuficiente"
-    df2.loc[m_traza & df2["Solicitud"].isna(), "Solicitud"] =  "Revisar: anticipo sin descripción suficiente en el extracto. Solicitar contrato/pedido, objeto del anticipo, evidencia de autorización y confirmación de bienes/servicios pendientes de recibir (con soporte)."
+    df2.loc[m_traza & df2["Solicitud"].isna(), "Solicitud"] = (
+        "Revisar: anticipo sin descripción suficiente en el extracto. Solicitar contrato/pedido, objeto del anticipo, evidencia de autorización "
+        "y confirmación de bienes/servicios pendientes de recibir (con soporte)."
+    )
 
     # 6.4 Anticipos - OK (último fallback)
     m_ok_anticipo = is_anticipo & df2["Análisis"].isna()
     df2.loc[m_ok_anticipo, "Análisis"] = "Anticipo (sin indicador objetivo de incidencia en SAP)"
-    df2.loc[m_ok_anticipo & df2["Solicitud"].isna(), "Solicitud"] = "Sin indicador objetivo de incidencia en SAP. Requiere verificación documental (contrato/pedido, autorización, bien/servicio pendiente) y plan/fecha de compensación/regularización."
+    df2.loc[m_ok_anticipo & df2["Solicitud"].isna(), "Solicitud"] = (
+        "Sin indicador objetivo de incidencia en SAP. Requiere verificación documental (contrato/pedido, autorización, bien/servicio pendiente) "
+        "y plan/fecha de compensación/regularización."
+    )
 
     # 6.5 Retenciones - siempre consultar
     m_ret = is_retencion
     df2.loc[m_ret, "Análisis"] = "Retención en garantía (obra / disputa)"
-    df2.loc[m_ret & df2["Solicitud"].isna(), "Solicitud"] = "Solicitar a Administración: confirmar obra en curso o disputa, % retenido, condiciones de liberación, fecha estimada de finalización/recepción y soporte documental (contrato, certificaciones/actas, comunicaciones)."
+    df2.loc[m_ret & df2["Solicitud"].isna(), "Solicitud"] = (
+        "Solicitar a Administración: confirmar obra en curso o disputa, % retenido, condiciones de liberación, "
+        "fecha estimada de finalización/recepción y soporte documental (contrato, certificaciones/actas, comunicaciones)."
+    )
 
+    # =========================
     # 6.6 TOTAL: saldo total REAL del proveedor (incluye TODAS las partidas del proveedor)
-     
+    # =========================
     if all(k in df2.columns for k in keys_prov):
         saldo_total_real_grp = df2.loc[mask_partida2].groupby(keys_prov, dropna=False)["ImpteML"].sum()
         # map por fila (solo para las filas TOTAL)
@@ -834,15 +655,18 @@ def anticipos_proveedores(df: pd.DataFrame) -> pd.DataFrame:
         saldo_total_map = pd.Series(idx2.map(saldo_total_real_grp), index=df2.index)
         df2.loc[mask_total2, "ImpteML"] = saldo_total_map.loc[mask_total2].values
 
-    # Etiqueta para TOTAL
+    # (Opcional) Etiqueta para TOTAL
     df2.loc[mask_total2, "Etiqueta"] = "TOTAL proveedor (saldo real)"
 
+    # =========================
     # 6.7 FILTRO FINAL DE VISUALIZACIÓN
+    # SOLO mostramos:
     # - partidas clasificadas como anticipo o retención
     # - la fila TOTAL del proveedor
-
+    # =========================
     df2_show = df2.loc[mask_total2 | is_anticipo | is_retencion].copy()
 
+    # 7) Selección final columnas --------------------------------------------------------------------------------------
     columnas = [
         "Fecha Clave", "UE", "Sociedad", "BP", "LibrMay", "Cuenta", "Nombre1", "N_doc", "Clase", "Texto",
         "Fe_contab", "Fecha_doc", "Venc_neto", "Factura", "Fecha_pago",
@@ -851,7 +675,7 @@ def anticipos_proveedores(df: pd.DataFrame) -> pd.DataFrame:
 
     df_out = df2_show[[c for c in columnas if c in df2_show.columns]].copy()
 
-    # Fechas a date  
+    # Fechas a date (para Excel)
     cols_fecha_out = ["Fecha Clave", "Fe_contab", "Venc_neto", "Fecha_doc", "Fecha_pago"]
     for c in cols_fecha_out:
         if c in df_out.columns:
@@ -860,21 +684,20 @@ def anticipos_proveedores(df: pd.DataFrame) -> pd.DataFrame:
     return df_out
 
 def excel(df: pd.DataFrame, ruta: str) -> str:
-    """
-    Fase final: Renderizado de evidencias y estructuración del libro de Excel.
-    Aplica estilos, formateo condicional de celdas para priorización visual,
-    filtros automáticos y escalado de fuentes para su consumo directo por el auditor.
-    """
-    
+
     orden_cols= ["Fecha Clave","UE","Sociedad","Cuenta","Nombre1","Asignacion","N_doc","Registrado","Ej_mes","Fe_contab", "Venc_neto", "Fecha_doc","Fecha_pago","Antigüedad", "Texto", "Clase","ImpteML","ML","Casuística","Etiqueta","Análisis","Solicitud","Demora","BP","LibrMay","CPag","Referencia","Factura","antig","_is_total",]
 
+
     def activar_filtros_y_congelar(ws):
-        """Habilita los filtros dinámicos superiores y congela la fila de cabecera."""
+        """
+        Activa AutoFilter sobre la fila 1 (cabecera) y congela la fila superior.
+        """
         max_row = ws.max_row
         max_col = ws.max_column
         if max_row < 1 or max_col < 1:
             return
 
+        # Rango de filtro: desde A1 hasta la última columna y última fila usada
         last_col = get_column_letter(max_col)
         ws.auto_filter.ref = f"A1:{last_col}{max_row}"
 
@@ -899,7 +722,6 @@ def excel(df: pd.DataFrame, ruta: str) -> str:
                     if cell.value is not None:
                         cell.number_format = formato
 
-    # Ejecución interna del Pipeline secuencial contable
     df_og = df.copy()
     df_proc = preprocess(df_og)
     df_cas = casuistica(df_proc)
@@ -915,18 +737,22 @@ def excel(df: pd.DataFrame, ruta: str) -> str:
 
     df_cas["Fecha Clave"] = pd.to_datetime(df_cas["Fecha Clave"], errors="coerce").dt.strftime("%d/%m/%Y")
 
-    # ENERACIÓN HOJA "SOLICITUD"
-    # Extrae el subconjunto de proveedores con anomalías vigentes para la revisión del Agente IA
+    # 2) Hoja Solicitud: incluir TODAS las filas de las cuentas que tengan alguna solicitud
     mask_sol = df_cas["Solicitud"].notna() & _safe_str_series(df_cas["Solicitud"]).ne("")
+
+    # claves a nivel proveedor (y por informe)
     keys_sol = ["Fecha Clave", "UE", "Sociedad", "Cuenta", "Nombre1"]
+
     proveedores_con_sol = df_cas.loc[mask_sol, keys_sol].drop_duplicates()
-    df_sol = df_cas.merge(proveedores_con_sol, on=keys_sol, how="inner")
+    if proveedores_con_sol.empty:
+        df_sol = df_cas.iloc[0:0].copy()
+    else:
+        df_sol = df_cas.merge(proveedores_con_sol, on=keys_sol, how="inner")
 
     for c in cols_fecha_all:
         if c in df_sol.columns:
             df_sol[c] = pd.to_datetime(df_sol[c], errors="coerce").dt.date
 
-    # Diccionario maestro de anchos de columna estructurado para visualización de informes financieros
     ancho_columnas = {
         "Fecha Clave":14,"UE":15, "Sociedad":8, "Cuenta":10, "Nombre1":23, "N_doc":12, "Registrado":12,
         "Ej_mes":10, "Fe_contab":12, "Venc_neto":12, "Fecha_doc":12, "Antigüedad":8,
@@ -937,7 +763,7 @@ def excel(df: pd.DataFrame, ruta: str) -> str:
     os.makedirs(os.path.dirname(ruta) or ".", exist_ok=True)
 
     def escalar_dict_anchos(widths: dict, scale: float, min_width: float = 4.0) -> dict:
-        """Aplica un re-escalado geométrico de fuentes y celdas para optimizar la ergonomía del análisis."""
+ 
         out = {}
         for k, v in widths.items():
             try:
@@ -978,13 +804,15 @@ def excel(df: pd.DataFrame, ruta: str) -> str:
         max_row = ws.max_row if solo_rango_usado else ws.max_row
         max_col = ws.max_column if solo_rango_usado else ws.max_column
 
-        # Aplicar altura filas  
+        # Aplicar altura filas (desde 1 para incluir cabecera si quieres)
         for r in range(1, max_row + 1):
             ws.row_dimensions[r].height = row_h
 
-        # Aplicar fuente a celdas  
+        # Aplicar fuente a celdas (si solo quieres "Analisis" y "Solicitud", aplica allí)
         for row in ws.iter_rows(min_row=1, max_row=max_row, min_col=1, max_col=max_col):
             for cell in row:
+                # OJO: esto sobrescribe tamaño de fuente previo.
+                # Si luego pintas filas (TOTAL en negrita), la negrita seguirá si la reasignas después.
                 cell.font = Font(
                     name=cell.font.name,
                     bold=cell.font.bold,
@@ -994,16 +822,18 @@ def excel(df: pd.DataFrame, ruta: str) -> str:
                     size=font_size
                 )
 
-        # 4) Zoom
+        # 4) Zoom opcional (esto NO cambia tamaños reales, solo la vista)
         if zoom is not None:
             ws.sheet_view.zoomScale = zoom
 
     def aplicar_estilos(ws):
 
+        # ---------------------------
         # 1) Mapear nombres de columnas a índices
         headers = [cell.value for cell in ws[1]]
         col = {h: i + 1 for i, h in enumerate(headers) if h is not None}
 
+        # Columnas necesarias
         c_is_total = col.get("_is_total")
         c_analisis = col.get("Análisis")
         c_casu     = col.get("Casuística")
@@ -1011,12 +841,14 @@ def excel(df: pd.DataFrame, ruta: str) -> str:
         c_impte    = col.get("ImpteML")
         c_antigued = col.get("Antigüedad")
 
+        # Si faltan columnas críticas, salimos sin romper
         if c_is_total is None or c_analisis is None:
             return
 
         max_row = ws.max_row
         max_col = ws.max_column
 
+        # -----------------------------
         # 2) Definir estilos
         fill_gris   = PatternFill("solid", fgColor="E6E6E6")
         fill_azul   = PatternFill("solid", fgColor="D9E8FF")  # azul suave
@@ -1025,11 +857,13 @@ def excel(df: pd.DataFrame, ruta: str) -> str:
         font_roja   = Font(color="9C0006")  # rojo oscuro legible
         font_bold   = Font(bold=True)
 
+        # -----------------------------
         # 3) Columna "Análisis" azul (todas las filas con datos)
         for r in range(2, max_row + 1):
             ws.cell(row=r, column=c_analisis).fill = fill_azul
 
-        # 4) Fila TOTAL gris (
+        # -----------------------------
+        # 4) Regla: Fila TOTAL gris (y opcional negrita)
         for r in range(2, max_row + 1):
             v_total = ws.cell(row=r, column=c_is_total).value
             is_total = str(v_total).strip() == "1"
@@ -1039,14 +873,18 @@ def excel(df: pd.DataFrame, ruta: str) -> str:
                     cell = ws.cell(row=r, column=c)
                     cell.fill = fill_gris
                     cell.font = font_bold
+
+                # Importante: aunque pintemos la fila, mantenemos la columna Análisis azul?
+                # Tu requisito dice "toda la fila total gris", así que gris manda.
                 continue
 
-            # 5) Reglas por tipo 
+            # -----------------------------
+            # 5) Reglas por tipo (solo NO-TOTAL)
             analisis_txt = str(ws.cell(row=r, column=c_analisis).value or "").strip().lower()
             casu_txt     = str(ws.cell(row=r, column=c_casu).value or "").strip().lower() if c_casu else ""
             clase_txt    = str(ws.cell(row=r, column=c_clase).value or "").strip().upper() if c_clase else ""
 
-            # celda en naranja + fuente roja
+            # Helper para pintar una celda en naranja + fuente roja
             def pintar_alerta(row, col_idx):
                 if col_idx is None:
                     return
@@ -1055,25 +893,27 @@ def excel(df: pd.DataFrame, ruta: str) -> str:
                 # Si la celda ya tenía formato especial, lo sobreescribimos a rojo (prioridad alerta)
                 cell.font = font_roja
 
-            # Z6: Clase e Importe naranja + letras rojas
+            # ---- (A) Z6: Clase e Importe naranja + letras rojas
             if clase_txt == "Z6" or "revisar z6" in analisis_txt:
                 pintar_alerta(r, c_clase)
                 pintar_alerta(r, c_impte)
+                # Z6 es muy prioritario; no necesitamos seguir evaluando más reglas
                 continue
 
-            # Acreedora antigua: Antigüedad e Importe
+            # ---- (B) Acreedora antigua: Antigüedad e Importe
+            # Puede venir en Casuística o en Análisis
             if "acreedora antigua" in analisis_txt or casu_txt == "acreedora antigua":
                 pintar_alerta(r, c_antigued)
                 pintar_alerta(r, c_impte)
                 continue
 
-            # Deudora antigua: Antigüedad e Importe
+            # ---- (C) Deudora antigua: Antigüedad e Importe
             if "deudora antigua" in analisis_txt:
                 pintar_alerta(r, c_antigued)
                 pintar_alerta(r, c_impte)
                 continue
 
-            # Deudora general: solo Importe naranja + letras rojas
+            # ---- (D) Deudora general: solo Importe naranja + letras rojas
             if casu_txt == "deudora":
                 pintar_alerta(r, c_impte)
                 continue
@@ -1133,7 +973,7 @@ def excel(df: pd.DataFrame, ruta: str) -> str:
                 return s[:-2]
             return s
 
-        # 1) Columna "Análisis" azul  
+        # 1) Columna "Análisis" azul (si existe)
         if c_analisis is not None:
             for r in range(2, max_row + 1):
                 ws.cell(row=r, column=c_analisis).fill = fill_azul
@@ -1155,6 +995,7 @@ def excel(df: pd.DataFrame, ruta: str) -> str:
             
             analisis_txt = str(ws.cell(row=r, column=c_analisis).value or "").strip().lower()
 
+
             # LibrMay: naranja+rojo si 40700001 o 40010001
             if c_lm is not None:
                 cell_lm = ws.cell(row=r, column=c_lm)
@@ -1167,7 +1008,8 @@ def excel(df: pd.DataFrame, ruta: str) -> str:
                 if tiene_valor(cell_pag):
                     pintar_alerta(cell_pag)
 
-            # Resalte analítico avanzado mediante búsquedas de patrones textuales en descripciones
+
+            # Texto: alerta si el análisis contiene ciertas palabras
             if "procuradores" in analisis_txt:
                 pintar_alerta(ws.cell(row=r, column=c_texto))
 
@@ -1179,7 +1021,6 @@ def excel(df: pd.DataFrame, ruta: str) -> str:
                 pintar_alerta(ws.cell(row =r, column = col.get('Fecha Clave')))
                 pintar_alerta(ws.cell(row =r, column = col.get('Antigüedad')))
 
-    # ESCRITURA MULTI-PÁGINA PERSISTENTE EN DISCO (OPENPYXL ENGINE)
     with pd.ExcelWriter(ruta, engine="openpyxl") as writer:
         df_og.to_excel(writer, sheet_name="Original", index=False)
         df_cas.to_excel(writer, sheet_name="Analisis", index=False)
@@ -1217,8 +1058,48 @@ def excel(df: pd.DataFrame, ruta: str) -> str:
         aplicar_escala_hoja(wsAP, df_ant, ancho_columnas, scale=scale, zoom=90)
         aplicar_escala_hoja(wsO,  df_og,  ancho_columnas, scale=scale, zoom=90)
 
-        # # Inyección perimetral de filtros interactivos y congelación de paneles superiores
+        #  ACTIVAR FILTROS + CONGELAR CABECERA (para que puedas filtrar en Excel)
         activar_filtros_y_congelar(wsO)
         activar_filtros_y_congelar(wsA)
         activar_filtros_y_congelar(wsS)
         activar_filtros_y_congelar(wsAP)
+    
+    return ruta
+
+def build_fbl1n_fact(req) -> pd.DataFrame:
+    sociedades = resolve_sociedades(req.hotel, req.sociedades)
+    fact_all = []
+
+    temp_base_dir = tempfile.gettempdir()
+
+    for soc in sociedades:
+        data = [(req.variante, req.clase, req.status, req.fecha_low, req.fecha_high, soc)]
+        df_fact = fbl1n(data=data, carpeta="sap_tmp", base_dir=temp_base_dir)
+        fact_all.append(df_fact)
+
+    if not fact_all:
+        return pd.DataFrame()
+
+    return pd.concat(fact_all, ignore_index=True)
+
+def run_analitica(df_fact: pd.DataFrame, req):
+    df_proc = preprocess(df_fact)
+
+    df_cas = None
+    if req.analitica.casuistica:
+        df_cas = casuistica(df_proc)
+
+    df_ant = None
+    if req.analitica.anticipos:
+        df_ant = anticipos_proveedores(df_proc)
+
+    return df_proc, df_cas, df_ant
+
+def generate_excel(df_fact: pd.DataFrame, req, out_dir: str) -> str:
+    os.makedirs(out_dir, exist_ok=True)
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    target_name = f"FBL1N_{req.hotel or 'SOC'}_{req.fecha_high}_{ts}.xlsx".replace(" ", "_")
+    path = os.path.join(out_dir, target_name)
+
+    return excel(df_fact, path)

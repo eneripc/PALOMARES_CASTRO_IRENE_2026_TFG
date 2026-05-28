@@ -31,7 +31,15 @@ from openpyxl.utils import get_column_letter
 
 from functions import preprocess, casuistica, anticipos_proveedores
 
+# FUNCIONES AUXILIARES DE PROPAGACIÓN Y SCORING HEURÍSTICO
+
 def propagar_solicitud_proveedor(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Propaga el texto de la columna 'Solicitud' (definido en las filas resúmenes TOTAL)
+    a todas las partidas individuales correspondientes del mismo proveedor.
+    Genera el indicador binario 'REQ_DOC' útil para trazabilidad del pipeline.
+    """
+
     d = df.copy()
 
     if "_is_total" not in d.columns:
@@ -46,62 +54,76 @@ def propagar_solicitud_proveedor(df: pd.DataFrame) -> pd.DataFrame:
         d["Solicitud_prov"] = ""
         return d
 
+    # Aislar las filas de totales (_is_total == 1) para construir el mapa de mapeo
     tot = d[d["_is_total"].eq(1)].copy()
     tot["Solicitud"] = tot.get("Solicitud", pd.Series("", index=tot.index)).astype(str).fillna("").str.strip()
 
+    # Construir mapeo indexado por proveedor
     sol_map = tot.set_index(keys)["Solicitud"]
     idx = pd.MultiIndex.from_frame(d[keys])
-
+    
+    # Mapear solicitudes y marcar REQ_DOC = 1 si la fila requiere envío de documentación
     d["Solicitud_prov"] = idx.map(sol_map).fillna("")
     d["REQ_DOC"] = (d["Solicitud_prov"].astype(str).str.strip() != "").astype(int)
 
     return d
 
 def case_score(df):
+
+    """
+    Traduce el conocimiento experto contable del manual de control interno en un score cuantitativo [0,1].
+    Cruza variables categóricas de Casuística y de Análisis analítico sustantivo.
+    """
+
     df = df.copy()
     df = preprocess(df)
     d = casuistica(df)
     cas = d["Casuística"].astype(str).fillna("").str.strip().str.lower()
     ana = d["Análisis"].astype(str).fillna("").str.strip().str.lower()
 
-    # 1) Score base por Casuística
+    # 1) Inicialización del mapa de pesos base por criticidad operativa
     base_map = {
-        "acreedora antigua": 0.75,
-        "z6 finiquitos/reembolsos": 0.65,
-        "deudora": 0.45,
-        "acreedora": 0.35,
-        # si tienes más etiquetas, añádelas aquí
+        "acreedora antigua": 0.75,         # Riesgo alto de deuda estancada o ineficiencia
+        "z6 finiquitos/reembolsos": 0.65,  # Requiere siempre supervisión documental obligatoria
+        "deudora": 0.45,                   # Anomalía moderada en el ciclo de compras
+        "acreedora": 0.35,                 # Partida estándar del ciclo ordinario
     }
 
     d["CASE_SCORE"] = cas.map(base_map).fillna(0.0)
 
-    # 2) Overrides por Análisis (prioridad)
+# 2) Overrides condicionales de prioridad basados en el diagnóstico del análisis sustantivo
     # - Incidencia: mínimo 0.85
     # - Revisar: mínimo 0.60
     is_incidencia = ana.str.contains("incidencia", na=False)
     is_revisar    = ana.str.contains("revisar", na=False)
 
+    # Aplicar la cota máxima permitida para asegurar el peso del riesgo penalizado
     d.loc[is_revisar, "CASE_SCORE"] = np.maximum(d.loc[is_revisar, "CASE_SCORE"], 0.60)
     d.loc[is_incidencia, "CASE_SCORE"] = np.maximum(d.loc[is_incidencia, "CASE_SCORE"], 0.85)
 
-    # (Opcional) Si quieres castigar "saldo total deudor" en filas total:
+    # Penalización específica para proveedores en balance deudor total neto
     d.loc[(d.get("_is_total",0)==1) & ana.str.contains("saldo total deudor"), "CASE_SCORE"] = 0.70
 
-    # 3) Normalizar 0..1
+    # 3) Normalización matemática estricta y limpieza del espacio de memoria
     d["CASE_SCORE"] = pd.to_numeric(d["CASE_SCORE"], errors="coerce").fillna(0).clip(0, 1)
     df.drop(columns = ['_is_total'], inplace = True)
     return d
 
-# PREPROCESAMIENTO -----------------------------------------------------------------------------------------------------------------------------------------
+# MÓDULOS DE PROCESAMIENTO DE LENGUAJE NATURAL (NLP)
 
 def zero_shot(df):
-    # clasificacion textual del tipo de riesgo de la partida
+    """
+    Clasificador Semántico Semisupervisado (Zero-Shot Alternativo).
+    Vectoriza mediante TF-IDF a nivel de n-gramas de caracteres y calcula la similitud del coseno
+    entre campos textuales unificados y prompts hipótesis de riesgo para clasificar descripciones.
+    """
+
     df = df.copy()
 
     CAMPOS_TEXTO = ["Texto", "Clase", "Referencia",  "N_doc", "Solicitud"]
     CAMPOS_CTX = ["Sociedad","UE","Cuenta","CPag","Demora","Fecha_doc","Registrado","ImpteML"]
 
-    # Etiquetas de RIESGO 
+    # Definición del espacio de clases / etiquetas objetivo para el auditor
     risk_labels = [
         "Pago duplicado o similar",
         "Texto o referencia ambigua",
@@ -128,27 +150,15 @@ def zero_shot(df):
     }
 
     def build_row_text(row):
-        # texto principal para Construir texto por fila
-        t = " ".join(
-            str(row[c]) for c in CAMPOS_TEXTO
-            if c in df.columns and pd.notna(row[c])
-        )
-
-        # contexto
-        ctx = " ".join(
-            f"{c}={row[c]}" for c in CAMPOS_CTX
-            if c in df.columns and pd.notna(row[c])
-        )
-
+        """Unifica cadenas descriptivas con metadatos numéricos en un único string de contexto."""
+        t = " ".join(str(row[c]) for c in CAMPOS_TEXTO if c in df.columns and pd.notna(row[c]))
+        ctx = " ".join(f"{c}={row[c]}" for c in CAMPOS_CTX if c in df.columns and pd.notna(row[c]))
         return (t + " " + ctx).strip()
 
     df["Texto_zs"] = df.apply(build_row_text, axis=1).fillna("")
 
-    # Crea un prompt por etiqueta
-    prompts = [
-        f"Este texto trata sobre {lbl}. {risk_desc[lbl]}"
-        for lbl in risk_labels
-    ]
+    # Construcción formal del corpus de prompts hipótesis
+    prompts = [ f"Este texto trata sobre {lbl}. {risk_desc[lbl]}" for lbl in risk_labels]
 
     #  Ajustar vectorizador sobre textos + prompts
     corpus = df["Texto_zs"].tolist() + prompts
@@ -156,12 +166,14 @@ def zero_shot(df):
     X = vec.fit_transform(corpus)
 
     n = len(df)
-    X_text = X[:n]      # facturas
-    X_labels = X[n:]    # prompts
+    X_text = X[:n]      # Submatriz de datos transaccionales
+    X_labels = X[n:]    # Submatriz de prompts de hipótesis
 
+    # Cálculo de la métrica de distancia: Similitud del Coseno entre transacciones e hipótesis
     sims = cosine_similarity(X_text, X_labels) # similaridad coseno
     max_idx = sims.argmax(axis=1)
-    # asignar etiqueta y score
+
+    # Asignación de la etiqueta de mayor afinidad geométrica y su score correspondiente
     df["zs_label"] = [risk_labels[i] for i in max_idx]
     df["zs_score"] = [float(sims[i, max_idx[i]]) for i in range(n)]
 
@@ -169,9 +181,15 @@ def zero_shot(df):
 
     return df
 
-# ML NO SUPERVISADO -----------------------------------------------------------------------------------------------------------------------------------------
+# MÓDULOS DE APRENDIZAJE NO SUPERVISADO (MACHINE LEARNING CORE)
+
 def detectar_duplicados(df, importe_tol=1, dias_tol=3, sim_tol=0.70):
-    # posibles duplicados en partidas segun el importe, rango de fecha y similitud textual
+    """
+    Algoritmo de Detección Tridimensional de Duplicados.
+    Cruza consistencia económica (importe_tol), proximidad temporal (dias_tol) 
+    y similitud morfológica de cadenas mediante Two-Pointers optimizado por grupos.
+    """
+
     df_out = df.copy() # dataframe destino
     df_work = df.copy() #dataframe temporal para transformaciones y calculos intermedios
 
@@ -245,7 +263,7 @@ def detectar_duplicados(df, importe_tol=1, dias_tol=3, sim_tol=0.70):
                     df_out.at[i, "Duplicado_score"] = max(df_out.at[i, "Duplicado_score"], float(sim))
                     df_out.at[j, "Duplicado_score"] = max(df_out.at[j, "Duplicado_score"], float(sim))
 
-                # DETECCIÓN EXTRA: REFERENCIAS CASI IGUALES (edit distance 1-3)
+                #   REFERENCIAS CASI IGUALES (edit distance 1-3)
                 ref_r = str(grp.loc[idx_sorted[right], "Referencia"])
                 ref_k = str(grp.loc[idx_sorted[k], "Referencia"])
 
@@ -260,11 +278,14 @@ def detectar_duplicados(df, importe_tol=1, dias_tol=3, sim_tol=0.70):
     return df_out
 
 def anomalias_isolation(df):
+    """
+    Detector de Incorrecciones y Anomalías basado en Isolation Forest.
+    Aísla de forma geométrica los registros atípicos mediante particiones aleatorias recursivas.
+    Genera un motor explicativo de explicaciones basado en Robust Z-Score (MAD).
+    """
 
-    # Variables necesarias
     features = ["ImpteML", "Demora", "Antigüedad", "zs_score", "Casuística", "Duplicado"]
 
-    # Garantizar que existen todas las columnas
     for c in features:
         if c not in df.columns:
             df[c] = 0
@@ -286,7 +307,7 @@ def anomalias_isolation(df):
         mad = mad if mad > 0 else 1e-6
         return (s - med) / (1.4826 * mad)
 
-    # Usamos z-scores para generar razones, no para crear columnas
+    # Usamos z-scores para generar razones 
     Z = {col: robust_z(df[col]) for col in features}
 
     def build_reasons(idx, top_k=3):
@@ -313,15 +334,18 @@ def anomalias_isolation(df):
     return df
 
 def riesgo_global(df):
+    """
+    Función de Fusión Lineal de Riesgo.
+    Consolida las señales categóricas, semánticas y cuantitativas previas en una métrica
+    mapeada en el rango [0,1], aplicando normalizaciones estretas Min-Max.
+    """
   
     df = df.copy()
-
-    # 0) Asegurar tipos datetime para poder restar fechas
     for c in ["Registrado", "Fecha_doc"]:
         if c in df.columns:
             df[c] = pd.to_datetime(df[c], errors="coerce")
 
-    # 1) Delta fecha doc (solo valores tardíos: registrado - fecha_doc > 0)
+    # Delta fecha doc (solo valores tardíos: registrado - fecha_doc > 0)
     if "Registrado" in df.columns and "Fecha_doc" in df.columns:
         df["Delta_fecha_doc"] = (df["Registrado"] - df["Fecha_doc"]).dt.days
         df["Delta_fecha_doc"] = pd.to_numeric(df["Delta_fecha_doc"], errors="coerce").fillna(0)
@@ -330,14 +354,14 @@ def riesgo_global(df):
         df["Delta_fecha_doc"] = 0
         df["Delta_fecha_doc_pos"] = 0
 
-    # 2) Asegurar columnas necesarias
+    # Asegurar columnas necesarias
     needed = ["zs_score", "CASE_SCORE", "Outlier_score", "Duplicado_score",
               "Demora", "Antigüedad", "ImpteML", "Delta_fecha_doc_pos"]
     for col in needed:
         if col not in df.columns:
             df[col] = 0
 
-    # 3) Normalización de importe (abs y min-max)
+    # Normalización Min-Max del Importe en valor absoluto para equilibrar el peso material de las transacciones
     df["ImpteML"] = pd.to_numeric(df["ImpteML"], errors="coerce").fillna(0)
     abs_vals = df["ImpteML"].abs()
     df["IMP_NORM"] = (abs_vals - abs_vals.min()) / (abs_vals.max() - abs_vals.min() + 1e-9)
@@ -350,18 +374,18 @@ def riesgo_global(df):
     df["NORM_ANTIG"]  = normalize_series(df["Antigüedad"])
     df["NORM_DUP"]    = normalize_series(df["Duplicado_score"])
     df["NORM_OUT"]    = normalize_series(df["Outlier_score"])
-    df["NORM_DELTA"]  = normalize_series(df["Delta_fecha_doc_pos"])  # <-- nuevo
+    df["NORM_DELTA"]  = normalize_series(df["Delta_fecha_doc_pos"])   
 
-    # 4) Riesgo global (ajusta pesos si quieres)
+    # MATRIZ DE PONDERACIÓN HEURÍSTICA DE EXPERTOS EN AUDITORÍA
     df["Riesgo"] = (
-        0.25 * df["zs_score"] +
-        0.20 * df["NORM_DUP"] +
-        0.15 * df["NORM_OUT"] +
-        0.10 * df["CASE_SCORE"] +
-        0.07 * df["NORM_DELTA"] +
-        0.05 * df["NORM_DEMORA"] +
-        0.05 * df["NORM_ANTIG"] +
-        0.03 * df["IMP_NORM"]
+        0.25 * df["zs_score"] +             # Contexto lingüístico del riesgo
+        0.20 * df["NORM_DUP"] +             # Probabilidad transaccional de duplicidad
+        0.15 * df["NORM_OUT"] +             # Puntuación de aislamiento de Isolation Forest
+        0.10 * df["CASE_SCORE"] +           # Penalización de reglas del manual de control interno
+        0.07 * df["NORM_DELTA"] +           # Desfase temporal de registro documental
+        0.05 * df["NORM_DEMORA"] +          # Retraso relativo acumulado
+        0.05 * df["NORM_ANTIG"] +           # Ciclo de envejecimiento de la partida
+        0.03 * df["IMP_NORM"]               # Magnitud del impacto económico de la línea
     ).round(4)
 
     # 5) Limpieza columnas auxiliares
@@ -371,42 +395,38 @@ def riesgo_global(df):
     return df
 
 def global_stats(df):  
-    # características globales
+    """Genera la matriz analítica consolidada de KPIs globales e índices ponderados por riesgo."""
+
     df = df.copy()
 
     stats = {
         "total_facturas": len(df),
-
-        # Riesgo
         "facturas_riesgo_alto": (df["Riesgo_final"] > 0.60).sum(),
         "pct_riesgo_alto": float((df["Riesgo_final"] > 0.60).mean()),
         "riesgo_medio_global": float(df["Riesgo_final"].mean()),
         "riesgo_p95_global": float(df["Riesgo_final"].quantile(0.95)),
-
-        # Importe ponderado por riesgo
         "importe_riesgo_total": float((df["ImpteML"].abs() * df["Riesgo_final"]).sum()),
         "riesgo_ponderado_global": float(
-            (df["ImpteML"].abs() * df["Riesgo_final"]).sum() /
-            (df["ImpteML"].abs().sum() + 1e-9)
+            (df["ImpteML"].abs() * df["Riesgo_final"]).sum() / (df["ImpteML"].abs().sum() + 1e-9)
         ),
-
-        # Duplicados
         "duplicados_total": int(df["Duplicado"].sum()),
         "pct_duplicados": float(df["Duplicado"].mean()),
-
-        # Anomalías IF
         "anomalias_total": int(df["Outlier"].sum()),
         "pct_anomalias": float(df["Outlier"].mean()),
-    }
+        }
 
     return pd.DataFrame([stats])
 
 def cluster_kmeans(df):
+    """
+    Segmentación No Supervisada mediante Algoritmo K-Means.
+    Aplica técnicas de acotación (clipping) y escalado robusto para mitigar sesgos de colas pesadas.
+    Determina de forma automática el K óptimo evaluando el coeficiente de silueta.
+    """
 
     variables =  ["ImpteML", "Demora", "Antigüedad","zs_score", "Duplicado_score","Outlier_score", "Riesgo", "Delta_fecha_doc"]
     d = df.copy()
 
-    # Asegurar numéricas
     for col in variables:
         d[col] = pd.to_numeric(d[col], errors="coerce").fillna(0)
 
@@ -459,9 +479,15 @@ def cluster_kmeans(df):
 
     return d, stats
 
-# ML SUPERVISADO-------------------------------------------------------------------------------------------------------------------------------------------
+# MÓDULOS DE APRENDIZAJE SUPERVISADO
 
 def rf_regressor(df, model_path="models/meta_rf.pkl"):
+
+    """
+    Meta-Modelo Random Forest Regressor (Destilación de Conocimiento / Señal Docente).
+    Entrena un ensamble no lineal tomando como variable objetivo blanda (soft label) el score heurístico.
+    Suaviza las puntuaciones, reduce varianza y extrae patrones de interacción multidimensionales.
+    """
 
     # Normalizar importe escala 0-1
     df["ImpteML"] = pd.to_numeric(df["ImpteML"], errors="coerce").fillna(0)
@@ -483,23 +509,27 @@ def rf_regressor(df, model_path="models/meta_rf.pkl"):
         model = joblib.load(model_path)
     else:
         model = RandomForestRegressor(
-            n_estimators=300,
+            n_estimators=300,        # Número elevado de árboles para estabilizar el error promedio
             max_depth=None,
-            max_features="sqrt",
+            max_features="sqrt",     # Selección de características estocástica para inducir diversidad entre nodos
             random_state=42,
-            n_jobs=-1
+            n_jobs=-1                # Paralelización completa en todos los núcleos disponibles
         ).fit(X, y)
         os.makedirs(os.path.dirname(model_path), exist_ok=True)
         joblib.dump(model, model_path)
 
-    # prediccion y combinacion con riesgo base
-
+    # Fusión matemática ponderada: Conserva la interpretabilidad de las reglas expertas mititgando sobreajustes
     df["Riesgo_rf"] = model.predict(X)
     df["Riesgo_final"] = 0.40 * df["Riesgo"] + 0.60 * df["Riesgo_rf"] # Riesgo final como combinación ponderada
 
     return df, model
 
 def rf_classifier(df, model_path="models/class_rf.pkl"):
+    """
+    Random Forest Classifier para Priorización Operativa.
+    Discretiza la predicción del score continuo consolidado en tres clases discretas: Bajo, Medio y Alto.
+    Aplica balanceo analítico de pesos de clase debido a la asimetría severa nativa de los datos.
+    """
 
     df["ImpteML"] = pd.to_numeric(df["ImpteML"], errors="coerce").fillna(0)
     abs_vals = df["ImpteML"].abs()
@@ -530,7 +560,7 @@ def rf_classifier(df, model_path="models/class_rf.pkl"):
         model = joblib.load(model_path)
     else:
         model = RandomForestClassifier(
-            class_weight="balanced",
+            class_weight="balanced", # Penalización de costes inversa para mitigar el sesgo hacia la clase mayoritaria (Bajo riesgo)
             random_state=42,
             n_jobs=-1
         ).fit(X, y)
@@ -539,23 +569,22 @@ def rf_classifier(df, model_path="models/class_rf.pkl"):
 
     # prediccion y etiquetas finales
     df["Riesgo_clase_rf"] = model.predict(X)
-    df["Riesgo_clase_rf"] = df["Riesgo_clase_rf"].map({
-        0: "Bajo",
-        1: "Medio",
-        2: "Alto"
-    })
+    df["Riesgo_clase_rf"] = df["Riesgo_clase_rf"].map({0: "Bajo", 1: "Medio", 2: "Alto"})
 
     df.drop(columns=['IMP_NORM'],inplace= True)
 
     return df, model
 
-# ANALISIS POR UE Y PROVEEDOR ----------------------------------------------------------------------------------------------------------------------------
+# MÓDULOS DE AGREGACIÓN MULTIDIMENSIONAL (BUSINESS INTELLIGENCE KPIs)
 
 def proveedor_kpis(df):
+    """
+    Consolida las métricas e indicadores de riesgo transaccionales agregándolos a nivel de Proveedor (Cuenta).
+    Implementa el Índice de Concentración Herfindahl-Hirschman (HHI) para medir dependencias geográficas.
+    """
 
     df = df.copy()
 
-    # Convertir a numérico las columnas relevantes
     numeric_cols = [
         "ImpteML","Riesgo_final","Duplicado","Outlier",
         "Demora","Antigüedad","Delta_fecha_doc","zs_score"]
@@ -566,33 +595,34 @@ def proveedor_kpis(df):
     
     # Índice de concentración HHI por UE --> detecta dependencia de un proveedor respecto a UEs
     def calc_hhi(x):
+        """Ecuación Económica: HHI = Suma(cuadrado de las cuotas relativas de mercado por hotel)."""
         p = x / x.sum()
         return (p**2).sum()
     
     # kpis agregados por proveedor (cuenta)
     kpis = df.groupby("Cuenta").apply(lambda g: pd.Series({
         
-        # --- Volumen ---
+        # Volumen
         "n_facturas": len(g),
         "importe_total": g["ImpteML"].sum(),
         "importe_medio": g["ImpteML"].mean(),
         "coef_variacion_importe": g["ImpteML"].std() / (g["ImpteML"].mean() + 1e-9),
 
-        # --- Riesgo ---
+        # Riesgo
         "riesgo_medio": g["Riesgo_final"].mean(),
         "riesgo_p95": g["Riesgo_final"].quantile(0.95),
         "pct_riesgo_alto": (g["Riesgo_final"] > 0.60).mean(),
         "riesgo_ponderado": (g["ImpteML"].abs()*g["Riesgo_final"]).sum() / (g["ImpteML"].abs().sum()+1e-9),
 
-        # --- Duplicados / fraccionamiento ---
+        # Duplicados 
         "n_duplicados": g["Duplicado"].sum(),
         "pct_duplicados": g["Duplicado"].mean(),
 
-        # --- Anomalías ---
+        # Anomalías
         "n_anomalias": g["Outlier"].sum(),
         "pct_anomalias": g["Outlier"].mean(),
 
-        # --- Ciclo documental y de pago ---
+        # Ciclo documental y de pago
         "mora_media": g["Demora"].mean(),
         "mora_p95": g["Demora"].quantile(0.95),
         "pct_pago_tarde": (g["Demora"] > 0).mean(),
@@ -602,10 +632,10 @@ def proveedor_kpis(df):
         "delta_doc_media": g["Delta_fecha_doc"].mean(),
         "pct_registros_tarde": (g["Delta_fecha_doc"] > 0).mean(),
 
-        # --- Semántica / Zero-shot ---
+        # Semántica / Zero-shot
         "zs_score_medio": g["zs_score"].mean(),
 
-        # --- Concentración (si un mismo proveedor factura a varias UEs) ---
+        # Concentración
         "hhi_por_ue": calc_hhi(g.groupby("UE")["ImpteML"].sum()),
 
     })).reset_index()
@@ -613,11 +643,16 @@ def proveedor_kpis(df):
     return kpis
 
 def analisis_UE(df, importe_tol=5, dias_tol=3,sim_tol=0.72):
-
+    """
+    Consolida las métricas agregándolas a nivel de Unidad de Explotación (Hotel / UE).
+    Habilita un control cruzado inter-hotel para capturar duplicidades de un mismo proveedor
+    facturadas errónea o fraudulentamente en múltiples complejos turísticos diferentes de forma paralela.
+    """
     res = {}
     d = df.copy()
     d["UE"] = d["UE"].astype(str)
 
+    # 1) Generación de la matriz descriptiva general de control por Hotel
     try:
         res["KPIS_UE"] = (
             d.groupby("UE")
@@ -652,6 +687,7 @@ def analisis_UE(df, importe_tol=5, dias_tol=3,sim_tol=0.72):
         print("[KPIS_UE]", e)
         res["KPIS_UE"] = pd.DataFrame()
 
+    # 2) Distribución de las frecuencias semánticas Zero-Shot por Unidad Operativa
     try:
         d["zs_label"] = d["zs_label"].astype(str).fillna("Sin_etiqueta")
         res["zs_ue"] = (
@@ -665,6 +701,7 @@ def analisis_UE(df, importe_tol=5, dias_tol=3,sim_tol=0.72):
         print("[ZS_UE]", e)
         res["zs_ue"] = pd.DataFrame()
 
+    # 3) Algoritmo de Detección de Duplicados Cruzados Inter-UE (Control Cruzado)
     try: # Mismo proveedor + importe similar + fecha cercana + texto
         d2 = d.copy()
         d2["ImpteML"] = pd.to_numeric(d2["ImpteML"], errors="coerce").fillna(0)
@@ -744,6 +781,7 @@ def analisis_UE(df, importe_tol=5, dias_tol=3,sim_tol=0.72):
         print("[Duplicados_UE]", e)
         res["Duplicados_UE"] = pd.DataFrame()
 
+    # 4) Construcción automática de alertas rápidas ejecutivas
     resumen = {}
     try: resumen["UE_mayor_riesgo"] = d.groupby("UE")["Riesgo_final"].mean().idxmax()
     except: resumen["UE_mayor_riesgo"] = None
@@ -765,13 +803,12 @@ def analisis_UE(df, importe_tol=5, dias_tol=3,sim_tol=0.72):
     return res
 
 def clustering_proveedores(df):
-
+    """
+    Agrupamiento Inteligente de Proveedores por Perfil de Comportamiento.
+    Segmenta las cuentas analizando la matriz consolidada completa de KPIs agregados.
+    Se ejecuta de forma adaptativa a nivel corporativo (GLOBAL) y desagregado por cada hotel.
+    """
     def cluster_por_proveedor(tabla):
-        """
-        Aplica KMeans sobre KPIs de proveedores,
-        seleccionando automáticamente el número óptimo de clusters (K)
-        mediante silhouette score.
-        """
 
         # Variables relevantes para clustering
         vars_clust = [
@@ -877,7 +914,8 @@ def clustering_proveedores(df):
     return results
 
 def pca_clustering_proveedores(tabla, titulo="PCA"):
-    
+    """Abstracción y visualización dimensional matemática (PCA) de los clusters de proveedores."""
+
     vars_clust = [
         "n_facturas",
         "importe_total",
@@ -928,18 +966,19 @@ def pca_clustering_proveedores(tabla, titulo="PCA"):
     plt.grid(True)
     plt.show()
 
-# EXPORTACIÓN ---------------------------------------------------------------------------------------------------------------------------------------------
+# # ORQUESTACIÓN DEL PIPELINE COMPLETO Y EXPORTACIÓN MULTI-INFORME 
 
 def flatten_df(df):
+    """Aclana índices jerárquicos MultiIndex de columnas resultantes de agregaciones."""
     if isinstance(df.columns, pd.MultiIndex):
         df = df.copy()
         df.columns = ['_'.join(map(str, col)).strip() for col in df.columns]
     return df
 
-def run_pipeline(df): #path
-    #df = pd.read_csv(path)
-    df = preprocess(df)
+def run_pipeline(df):
+    """ Orquestador Central Secuencial de Módulos Analíticos y de Machine Learning."""
 
+    df = preprocess(df)
     df_casos = casuistica(df)
     df_anticipos = anticipos_proveedores(df)
     df = propagar_solicitud_proveedor(df_casos)
@@ -974,7 +1013,6 @@ def run_pipeline(df): #path
     df_cls=df[['UE','Sociedad', 'Cuenta',"zs_score", 'Casuística', "Outlier", "Duplicado", "Demora", "Antigüedad", "ImpteML", 'Riesgo', 'Riesgo_rf', 'Riesgo_final', 'Riesgo_clase_rf' ]]
 
     stats_global = global_stats(df)
-
     proveedores_kpis = proveedor_kpis(df)
     analisis_ue = analisis_UE(df)
     clust_proveedores = clustering_proveedores(df)
@@ -982,20 +1020,21 @@ def run_pipeline(df): #path
     return df, df_casos,df_anticipos, df_zs, df_dup, df_if, df_rg, df_cluster, stats_cluster, df_rf, df_cls, stats_global, proveedores_kpis, analisis_ue, clust_proveedores
 
 def excel_ml(df: pd.DataFrame, output_path: str) -> str:
-    # -----------------------------
-    # 1) Preparar rutas
-    # -----------------------------
+
+    """
+    Generador e Inyector de Reportes en Hojas de Cálculo.
+    Ejecuta el pipeline unificado y distribuye de forma aislada los resultados en carpetas
+    y libros Excel parametrizados por Unidad de Explotación, automatizando filtros y paneles.
+    """
+
     base = os.path.splitext(os.path.basename(output_path))[0]
     out_folder = os.path.join(os.getcwd(), f"audit_{base}")
     os.makedirs(out_folder, exist_ok=True)
     final_path = os.path.join(out_folder, os.path.basename(output_path))
 
-    # -----------------------------
-    # 2) Ejecutar pipeline
-    # -----------------------------
-    (df_final, df_casos, df_anticipos, df_zs, df_dup, df_if, df_rg,
-     df_cluster, stats_cluster, df_rf, df_cls, stats_global,
-     proveedores_kpis, analisis_ue, clust_proveedores) = run_pipeline(df)
+    
+    (df_final, df_casos, df_anticipos, df_zs, df_dup, df_if, df_rg, df_cluster, stats_cluster, df_rf, df_cls, stats_global,
+    proveedores_kpis, analisis_ue, clust_proveedores) = run_pipeline(df)
 
     # KPIs proveedores por UE (útil para hoja larga)
     kpis_proveedor_por_ue = {
@@ -1008,12 +1047,10 @@ def excel_ml(df: pd.DataFrame, output_path: str) -> str:
           .reset_index(drop=True)
     )
 
-    # Componentes analisis UE
     analisis_ue_zs  = analisis_ue.get("zs_ue", pd.DataFrame())
     analisis_ue_dup = analisis_ue.get("Duplicados_UE", pd.DataFrame())
     analisis_ue_res = pd.DataFrame([analisis_ue.get("Resumen", {})])
 
-    # stats clustering proveedores por UE (si existe)
     stats_ue = pd.concat(
         {ue: res["stats"] for ue, res in clust_proveedores.items() if isinstance(res.get("stats", None), pd.DataFrame)},
         names=["UE", "Cluster"]
@@ -1033,9 +1070,7 @@ def excel_ml(df: pd.DataFrame, output_path: str) -> str:
         plot_diagnostico=False, plot_forecast=False
     )
 
-    # -----------------------------
     # Helpers Excel
-    # -----------------------------
     def _write_df(writer, sheet, df_, index=False, startrow=0):
         if isinstance(df_, pd.DataFrame) and not df_.empty:
             df_.to_excel(writer, sheet_name=sheet, index=index, startrow=startrow)
@@ -1048,9 +1083,7 @@ def excel_ml(df: pd.DataFrame, output_path: str) -> str:
             ws.auto_filter.ref = f"A1:{last_col}{max_row}"
             ws.freeze_panes = "A2"
 
-    # -----------------------------
-    # 3) Excel GLOBAL
-    # -----------------------------
+    # 1) CONFIGURACIÓN DEL REPORTE MAESTRO GLOBAL CORPORATIVO
     with pd.ExcelWriter(final_path, engine="openpyxl") as writer:
 
         _write_df(writer, "00_df_final", df_final)
@@ -1059,9 +1092,7 @@ def excel_ml(df: pd.DataFrame, output_path: str) -> str:
         _write_df(writer, "03_Anomalias", df_if)
         _write_df(writer, "04_Riesgo", df_rg)
         _write_df(writer, "05_Cluster_partidas", df_cluster)
-
         _write_df(writer, "05b_Stats_cluster", flatten_df(stats_cluster).reset_index(), index=False)
-
         _write_df(writer, "06_RF_regressor", df_rf)
         _write_df(writer, "07_RF_classifier", df_cls)
         _write_df(writer, "08_Stats_global", stats_global)
@@ -1117,9 +1148,7 @@ def excel_ml(df: pd.DataFrame, output_path: str) -> str:
             if ws_ is not None:
                 _autofilter_freeze(ws_)
 
-    # -----------------------------
-    # 4) EXCEL por UE
-    # -----------------------------
+    # 2) RENDEREIZADO SEPARADO DE INFORMES ESPECÍFICOS POR HOTEL (UE)
     for ue in df_final["UE"].dropna().unique():
 
         ue_folder = os.path.join(out_folder, str(ue))
@@ -1162,9 +1191,10 @@ def excel_ml(df: pd.DataFrame, output_path: str) -> str:
     return final_path
 
 
-# SERIES TEMPORALES ----------------------------------------------------------------------------------------------------------------------------------------
+# INFRAESTRUCTURA DE FORECASTING (SERIES TEMPORALES DINÁMICAS)
 
 def preparar_serie_ts(df, fecha_col, valor_col):
+    """Estructura vectores transaccionales brutos al formato indexado e inmutable estándar (ds, y)."""
     # prepara una serie temporal en formato (ds,y)
     # seleccioanr columnas de fecha y valor
     ts = df[[fecha_col, valor_col]].copy()
@@ -1179,6 +1209,7 @@ def preparar_serie_ts(df, fecha_col, valor_col):
     return ts[["ds", "y"]]
 
 def extremos_anuales(df, fecha_col, valor_col):
+    """Mapea descriptivamente las crestas y valles estacionales mensuales para auditoría estática."""
     # identifica l mes con el valor max y min de cada año
     # para poder detectar estacionalidad y picos
     df2 = df.copy()
@@ -1199,11 +1230,13 @@ def extremos_anuales(df, fecha_col, valor_col):
     return pd.DataFrame(resumen)
 
 def modelo_ets(ts):
+    """Modelo econométrico Holt-Winters (Espacio de Estados ETS con Tendencia y Estacionalidad Aditiva)."""
     # modelo ets (holt-winters)
     y = ts.set_index("ds")["y"]
     return ExponentialSmoothing(y, trend="add", seasonal="add", seasonal_periods=12).fit(optimized=True)
 
 def modelo_sarimax_auto(ts):
+    """Modelo probabilístico estacional rígido SARIMAX(1,1,1)x(1,1,1)_12 para series estacionarias estables."""
     # modelo sarimax estandar con estacionalidad
     y = ts["y"]
 
@@ -1225,6 +1258,7 @@ def modelo_sarimax_auto(ts):
         return modelo_ets(ts) # si  falla --> fallback a ets
 
 def modelo_prophet(ts):
+    """Modelo Bayesiano Aditivo Prophet (Meta) idóneo para series no estacionarias largas."""
     # modelo prophet cone stacionalidad anual, para series largas noe estacioanrias
     m = Prophet(
         yearly_seasonality=True,
@@ -1235,7 +1269,7 @@ def modelo_prophet(ts):
     return m
 
 def evaluar_forecast(train, test, pred_test, pred_future=None, title="", train_tail=12, plot=False):
-
+    """Calcula y consolida las métricas de desviación de errores continuos (MAE, RMSE, MAPE)."""
     real = test["y"].values
     pred_test = np.array(pred_test)
 
@@ -1271,6 +1305,11 @@ def evaluar_forecast(train, test, pred_test, pred_future=None, title="", train_t
     return df_eval
 
 def entrenar_modelo(ts, titulo="Diagnóstico y Selección de Modelo", plot=True):
+    """
+    Motor Algorítmico de Selección Automática de Modelos de Series Temporales.
+    Ejecuta el test Dickey-Fuller Aumentado (ADF) para evaluar raíces unitarias.
+    Cruza la estacionariedad con la longitud del vector para asignar la mejor arquitectura.
+    """
     # decide el modelo en funcion de la estacionaridad (test adf) y la longitud d ela serie
     diagnostico = {}
     ts = ts.dropna().copy()
@@ -1346,6 +1385,8 @@ def entrenar_modelo(ts, titulo="Diagnóstico y Selección de Modelo", plot=True)
 def pipeline_forecast(df, fecha_col, valor_col,titulo="Forecast Serie",
                       steps_test=6,steps_future=12,
                       plot_diagnostico=True,plot_forecast=True):
+    
+    """Orquestador univariante del ciclo de vida del forecast: Prep, Selección, Fit, Test e Inferencia."""
 
     #  Preparar serie temporal con EXÓGENOS (sin NaN)
     ts = preparar_serie_ts(df, fecha_col, valor_col)
@@ -1469,6 +1510,11 @@ def pipeline_forecast(df, fecha_col, valor_col,titulo="Forecast Serie",
     return model, df_eval, diagnostico, pred_test, pred_future
 
 def forecast_riesgo_final(df_hist, df_future_vars, steps_future=12):
+    """
+    Estrategia Predictiva Multivariante por Etapas para el Riesgo Final.
+    Dado que el riesgo es una variable compuesta y dependiente, entrena un regresor Random Forest 
+    mapeando las proyecciones futuras de las variables operativas base como regresores exógenos.
+    """
 
     feature_cols = ["ImpteML", "n_facturas", "pct_duplicados", "pct_anomalias", "Antigüedad","Demora", "Delta_fecha_doc"]
 
@@ -1511,6 +1557,7 @@ def pipeline_forecast_general(df,fecha_col,valor_col,titulo="Forecast",
                               steps_test=6,steps_future=12,future_exog_df=None,
                               plot_diagnostico=False,plot_forecast=False):
 
+    """Conmutador Maestro de Pronósticos: Enruta variables univariantes puros vs multivariante de riesgo."""
     # Variables temporales (SARIMA/ETS/Prophet)
     variables_temporales = ["ImpteML", "n_facturas", "pct_duplicados", "pct_anomalias", "Antigüedad", "Demora", "Delta_fecha_doc"]
 
@@ -1545,7 +1592,12 @@ def pipeline_forecast_general(df,fecha_col,valor_col,titulo="Forecast",
     raise Exception(f"Variable {valor_col} no reconocida en el sistema")
 
 def forecast_batch(df,steps_test=6,steps_future=12,plot_diagnostico=False,plot_forecast=False):
-   
+    """
+    Módulo de Procesamiento por Lotes de Pronósticos (Batch Time Series).
+    Agrega los datos diarios a granularidad mensual regular ('MS' inicio de mes) para reportes de auditoría.
+    Mapea de forma recursiva los modelos univariantes y acopla el ensamble del pronóstico de riesgo.
+    """
+
     df['Registrado2'] = pd.to_datetime(df['Registrado'], errors='coerce')
     df['periodo'] = df['Registrado2'].dt.to_period('M')
     df['periodo_dt'] = df['periodo'].dt.to_timestamp()
@@ -1736,9 +1788,7 @@ def forecast_batch(df,steps_test=6,steps_future=12,plot_diagnostico=False,plot_f
 
     return (metricas_dict,df_predicciones,df_final)
 
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
+# INFRAESTRUCTURA GRÁFICA (VISUALIZACIÓN MULTIPANEL DE TENDENCIAS)
 
 def plot_panel_train_test_pred(
     df_predicciones,
@@ -1756,8 +1806,9 @@ def plot_panel_train_test_pred(
     title=None
 ):
     """
-    Panel multipanel: Train (real), Test (real) y Pred (forecast) para una UE.
-    Usa df_predicciones (dict var -> lista de df_out por UE) generado por forecast_batch.
+    Renderiza un lienzo multipanel Matplotlib altamente estético.
+    Muestra de forma simultánea el histórico de entrenamiento (Train), validación (Test) 
+    y la proyección a futuro (Forecast) para un conjunto de variables seleccionadas de una Unidad.
     """
 
     if variables is None:

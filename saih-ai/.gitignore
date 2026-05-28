@@ -1,0 +1,40 @@
+
+# Entorno virtual
+venv/
+.venv/
+env/
+ENV/
+
+# Variables de entorno / secretos
+.env
+.env.*
+!.env.example
+
+# Base de datos local
+*.sqlite
+*.sqlite3
+jobs.sqlite
+
+# Outputs / ficheros generados
+out/
+*.xlsx
+*.xls
+*.csv
+
+# Caché de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Archivos de sistema / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Archivos temporales
+*.tmp
+*.temp

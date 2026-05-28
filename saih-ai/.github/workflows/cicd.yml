@@ -1,0 +1,32 @@
+name: CICD
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+      - "release/**"
+  push:
+    branches:
+      - main
+      - develop
+      - "release/**"
+  workflow_dispatch:
+
+jobs:
+  ci:
+    name: CI (Docker)
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci-docker.yml
+    secrets: inherit
+
+  cd:
+    needs: ci
+    name: CD (Build and Deploy)
+    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/cd-deploy.yml
+    secrets: inherit

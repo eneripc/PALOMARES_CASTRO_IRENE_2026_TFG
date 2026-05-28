@@ -1,0 +1,9 @@
+fastapi==0.115.0          # Framework web ASGI para construir APIs con tipado, validación y OpenAPI
+uvicorn[standard]==0.30.6 # Servidor ASGI para ejecutar FastAPI (extra 'standard' incluye mejoras/dep. comunes)
+pandas==2.2.2            # Manipulación y análisis de datos tabulares (DataFrame) para la analítica FBL1N
+openpyxl==3.1.5           # Escritura/lectura de Excel (XLSX) y estilos usados en la generación de informes
+requests==2.32.3          # Cliente HTTP usado para llamar al servicio SOAP de SAP
+pydantic==2.8.2           # Validación de modelos (schemas) y parsing de datos
+pydantic-settings==2.4.0  # Carga de configuración desde variables de entorno y .env mediante BaseSettings
+pyodbc==5.1.0
+azure-storage-blob==12.22.0
