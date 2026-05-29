@@ -162,5 +162,3 @@ AZURE_BLOB_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=
 * **Universidad:** Escuela Técnica Superior de Ingenieros Informáticos - Universidad Politécnica de Madrid (**UPM**).
 * **Entorno de Aplicación:** Barceló Hotel Group (BHG) - Área Corporativa de Auditoría Interna.
 * **Licencia:** Derechos reservados y confidenciales para uso e implantación interna de la organización.
-
-```
