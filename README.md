@@ -16,9 +16,13 @@ tfg-ml-audit/
 ├── src/                # Scripts de ingeniería de datos y modelado
 │   ├── data_pipeline.py            # Funciones helper, ETL, casuística y reglas analíticas
 │   ├── ml_pipeline.py                   # Modelos de Machine Learning y algoritmos de Forecasting
-│   └── README.md               # 
-├── outputs/                 # Cuadernos de validación y artefactos científicos
-│   └── tfg_limpio.ipynb        # Pipeline analítico y ejecución completa de experimentos
+│   ├──tfg_limpio.ipynb         # Pipeline analítico y ejecución completa de experimentos
+│   └── README.md                # 
+├── outputs/
+│   ├── Excel_Maya.xlsx           
+│   ├── Excel_Bavaro.xlsx                   
+│   ├── ML_Maya.xlsx
+│   └── ML_Bavaro.xlsx             
 ├── imgs/                       # Galería inmutable de diagramas y evidencias del TFG
 │   └── [Figura_*.png]          # Gráficos de arquitectura, PCA, Clustering y Pronósticos
 ├── saih-ai/                    # Backend modular de producción (API REST asíncrona)
