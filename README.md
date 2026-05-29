@@ -33,40 +33,6 @@ tfg-ml-audit/
 
 ---
 
-## Arquitectura Lógica e Interconexión de Capas
-
-El sistema opera bajo una arquitectura de microservicios estrictamente desacoplada de extremo a extremo, aislando la interfaz conversacional del cómputo analítico avanzado para blindar la gobernanza de datos y erradicar las alucinaciones financieras de los modelos lingüísticos.
-
-```
-┌───────────────────────────┐         Invocación Semántica Prompt
-│ Usuario / Auditor Externo │ ──────────────────────────────────────────────┐
-└─────────────┬─────────────┘                                               │
-              │                                                             ▼
-              │ Consulta Excel SAS URL (60 min)            ┌─────────────────────────────────┐
-              │                                            │ Microsoft AI Foundry (Agent)    │
-              ▼                                            └────────────────┬────────────────┘
-┌───────────────────────────┐                                               │
-│    Azure Blob Storage     │ ◄───────────────────────┐                     │ POST API Job Request
-└───────────────────────────┘                         │                     ▼
-                                            ┌─────────┴─────────┐  3a. Task ┌────────────────┐
-                                            │    storage.py     │ ◄──────── │    main.py     │
-                                            └─────────▲─────────┘  (BgTask) └────────┬───────┘
-                                                      │ 5a. Excel                    │ 2. Alcance
-                                            ┌─────────┴─────────┐           ┌────────▼───────┐
-                                            │    pipeline.py    │           │  hotel_map.py  │
-                                            └─────────▲─────────┘           └────────┬───────┘
-                                                      │ 4b. DataFrame Fact           │ 3b. Sociedades
-┌───────────────────────────┐  4a. XML SOAP ┌─────────┴─────────┐           ┌────────▼───────┐
-│          SAP ERP          │ ◄──────────── │   sap_client.py   │           │   jobs.py      │
-└───────────────────────────┘               └───────────────────┘           └────────┬───────┘
-                                                                                     │ 3c. SQL State
-                                                                                     ▼
-                                                                            ┌────────────────┐
-                                                                            │ Azure SQL DB   │
-                                                                            └────────────────┘
-
-```
-
 1. **Interfaz Semántica (Azure AI Foundry):** El Agente intercepta el prompt del auditor, parsea la Unidad de Explotación (`tool_fbl1n.json`) e invoca mediante un *Job* asíncrono los servicios de procesamiento cloud expuestos en `saih-ai`.
 2. **Coordinación Core (`main.py` & `hotel_map.py`):** La API recibe la petición HTTP, mapea la entidad hotelera a las sociedades fiscales reales del ERP e inicializa una subtarea en segundo plano registrada en `jobs.py`.
 3. **Persistencia e Ingesta Extractor (`sap_client.py` & Azure SQL):** Se almacena la máquina de estados en `Azure SQL Database` mientras se realiza una llamada SOAP XML al Web Service nativo de SAP para descargar el extracto transaccional bruto.
