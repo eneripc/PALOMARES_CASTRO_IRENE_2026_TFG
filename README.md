@@ -15,7 +15,8 @@ tfg-ml-audit/
 ├── .github/workflows/          # Pipelines CI/CD corporativos (GitHub Actions)
 ├── Metodologia/                # Scripts de ingeniería de datos y modelado
 │   ├── functions.py            # Funciones helper, ETL, casuística y reglas analíticas
-│   └── ml.py                   # Modelos de Machine Learning y algoritmos de Forecasting
+│   ├── ml.py                   # Modelos de Machine Learning y algoritmos de Forecasting
+│   └── README.md               # 
 ├── Resultados/                 # Cuadernos de validación y artefactos científicos
 │   └── tfg_limpio.ipynb        # Pipeline analítico y ejecución completa de experimentos
 ├── imgs/                       # Galería inmutable de diagramas y evidencias del TFG
@@ -47,8 +48,6 @@ El archivo `Resultados/tfg_limpio.ipynb` consolida toda la experimentación anal
 * **Clustering No Supervisado (K-Means & Isolation Forest):** Agrupamiento avanzado de patrones de riesgo contable anómalos a nivel de partidas y perfiles de proveedores corporativos.
 * **Análisis Temporal Adaptativo (Forecasting):** Proyecciones a 12 meses vista de carga financiera mediante arquitecturas de series temporales univariantes y multivariantes (**SARIMAX**, **Prophet** de Meta y **ETS**).
 * *Mape de Error Global:* `4.82%` en el consolidado macro de la corporación.
-
-
 
 ---
 
