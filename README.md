@@ -16,13 +16,13 @@ tfg-ml-audit/
 ├── src/                # Scripts de ingeniería de datos y modelado
 │   ├── data_pipeline.py            # Funciones helper, ETL, casuística y reglas analíticas
 │   ├── ml_pipeline.py                   # Modelos de Machine Learning y algoritmos de Forecasting
-│   ├──tfg_limpio.ipynb         # Pipeline analítico y ejecución completa de experimentos
+│   ├── CxP_analisis.ipynb         # Pipeline analítico y ejecución completa de experimentos
 │   └── README.md                # 
 ├── outputs/
-│   ├── Excel_Maya.xlsx           
-│   ├── Excel_Bavaro.xlsx                   
-│   ├── ML_Maya.xlsx
-│   └── ML_Bavaro.xlsx             
+│   ├── Excel_Maya.xlsx          # Hoja de calculo con los resultados de CxP de Maya
+│   ├── Excel_Bavaro.xlsx        # Hoja de calculo con los resultados de CxP de Bávaro                  
+│   ├── ML_Maya.xlsx             # Hoja de calculo con los resultados del pipeline de Maya
+│   └── ML_Bavaro.xlsx           # Hoja de calculo con los resultados del pipeline de Bávaro
 ├── imgs/                       # Galería inmutable de diagramas y evidencias del TFG
 │   └── [Figura_*.png]          # Gráficos de arquitectura, PCA, Clustering y Pronósticos
 ├── saih-ai/                    # Backend modular de producción (API REST asíncrona)
@@ -36,23 +36,23 @@ tfg-ml-audit/
 
 ```
 ---
+## Flujo Lógico de Cómputo Inter-Componente
+El sistema opera mediante una separación estricta de responsabilidades entre el entorno de investigación experimental y el ecosistema web productivo:
 
-## Bloque de Resultados Científicos (Jupyter Notebook)
+[ Datos Brutos SAP ] ──► [ data_pipeline.py ] ──► [ predictive_modeling.py ] ──► [ outputs/ Excel Evidencias ]
+                                │                           │
+                                ▼                           ▼
+                      (ETL y Reglas Heurísticas)   (Machine Learning / Forecast)
+                      
+1. CxP_analisis.ipynb: Actúa como el orquestador interactivo para la validación científica. Ejecuta secuencialmente las celdas invocando a los scripts de la carpeta src/.
 
-El archivo `Resultados/tfg_limpio.ipynb` consolida toda la experimentación analítica e ingeniería de características implementada sobre las matrices transaccionales de **Maya (11.238 partidas)** y **Bávaro (5.394 partidas)**.
+2. src/data_pipeline.py: Asume las tareas de ingeniería de datos. Limpia el ruido del extracto SAP, normaliza monedas, aplica etiquetas semánticas y evalúa los controles de anticipos o facturas duplicadas.
 
-### Componentes Ejecutados secuencialmente:
+3. src/ml_pipeline.py: Consolida los modelos predictivos y series temporales. Entrena el ensamble supervisado (Random Forest) para computar el Score de Riesgo Global, ejecuta el aislamiento estadístico (Isolation Forest) y proyecta las tendencias futuras (SARIMAX / Prophet).
 
-* **Preprocesado y Normalización:** Remoción de totales contables SAP e inyección del tipo de cambio monetario homogéneo (`ImpteML`).
-* **Reglas de Casuística Contable Heurística:** Identificación automatizada de anticipos estancados, partidas deudoras atípicas en acreedores y transacciones críticas sin Clave de Mayor Especial (CME).
-* **Modelos Supervisados (Random Forest):** Clasificador y Regresor probabilístico para la evaluación continua del Score de Riesgo Global.
-* *MAE de Validación:* `0.0241` | *F1-Score Ponderado:* `0.9315` | *Accuracy Global:* `93.82%`.
+4. outputs/: Almacena los resultados del pipeline en un libro Excel multi-página formateado, aislando los casos candidatos a auditoría sustantiva.
 
-
-* **Clustering No Supervisado (K-Means & Isolation Forest):** Agrupamiento avanzado de patrones de riesgo contable anómalos a nivel de partidas y perfiles de proveedores corporativos.
-* **Análisis Temporal Adaptativo (Forecasting):** Proyecciones a 12 meses vista de carga financiera mediante arquitecturas de series temporales univariantes y multivariantes (**SARIMAX**, **Prophet** de Meta y **ETS**).
-* *Mape de Error Global:* `4.82%` en el consolidado macro de la corporación.
-
+Para consultar las guías técnicas de despliegue cloud en la infraestructura de Microsoft Azure, uvicorn y contenerización Docker del Agente conversacional, acceda de forma directa al saih-ai/README.md.
 ---
 
 ## Automatización Operacional DevOps (GitHub Actions)
