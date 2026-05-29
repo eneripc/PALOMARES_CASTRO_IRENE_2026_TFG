@@ -30,14 +30,6 @@ tfg-ml-audit/
 └── README.md                   # Documentación principal del ecosistema
 
 ```
-
----
-
-1. **Interfaz Semántica (Azure AI Foundry):** El Agente intercepta el prompt del auditor, parsea la Unidad de Explotación (`tool_fbl1n.json`) e invoca mediante un *Job* asíncrono los servicios de procesamiento cloud expuestos en `saih-ai`.
-2. **Coordinación Core (`main.py` & `hotel_map.py`):** La API recibe la petición HTTP, mapea la entidad hotelera a las sociedades fiscales reales del ERP e inicializa una subtarea en segundo plano registrada en `jobs.py`.
-3. **Persistencia e Ingesta Extractor (`sap_client.py` & Azure SQL):** Se almacena la máquina de estados en `Azure SQL Database` mientras se realiza una llamada SOAP XML al Web Service nativo de SAP para descargar el extracto transaccional bruto.
-4. **Pipeline de Evidencias (`pipeline.py` & `storage.py`):** Los algoritmos en Python ejecutan los controles contables de criticidad, generan las solicitudes para las filiales hoteleras y externalizan las evidencias en libros Excel cifrados mediante firmas **SAS (Shared Access Signatures)** válidas por 60 minutos en `Azure Blob Storage`.
-
 ---
 
 ## Bloque de Resultados Científicos (Jupyter Notebook)
