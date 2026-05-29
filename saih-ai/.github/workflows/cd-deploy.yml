@@ -80,7 +80,7 @@ jobs:
             --name ${{ env.CONTAINER_APP_NAME }}-${{ needs.build.outputs.ENV }} \
             --resource-group ${{ env.AZURE_RESOURCE_GROUP_NAME }} \
             --image ${{ env.CONTAINER_REGISTRY }}/${{ env.CONTAINER_IMAGE_NAME }}:${{ needs.build.outputs.IMAGE_TAG }} \
-            --revision-suffix ${{ github.sha }}
+            --revision-suffix ${{ github.run_number }}
 
       - name: Log out from Azure
         run: az logout

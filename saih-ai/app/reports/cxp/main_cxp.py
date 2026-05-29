@@ -7,17 +7,17 @@ import tempfile
 import uuid
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
-from .auth import require_api_key
+from app.core.auth import require_api_key
 
-from .jobs import create_job, fail_job, get_job, init_db, update_job
-from .models import (
+from app.shared.jobs import create_job, fail_job, get_job, init_db, update_job
+from app.shared.models import (
     Fbl1nRequest,
     JobResultResponse,
     JobStatusResponse,
     StartJobResponse,
 )
-from .pipeline import build_fbl1n_fact, generate_excel, run_analitica
-from .storage import ensure_container_exists, generate_blob_sas_url, upload_file_to_blob
+from .pipeline_cxp import build_fbl1n_fact, generate_excel, run_analitica
+from app.infraestructure.storage import ensure_container_exists, generate_blob_sas_url, upload_file_to_blob
 
 
 app = FastAPI(title="FBL1N Reporting API", version="1.0.0")

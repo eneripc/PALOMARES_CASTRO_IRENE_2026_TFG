@@ -12,7 +12,7 @@ from azure.storage.blob import (
     generate_blob_sas,
 )
 
-from .config import settings
+from app.core.config import settings
 
 
 def _get_blob_service_client() -> BlobServiceClient:

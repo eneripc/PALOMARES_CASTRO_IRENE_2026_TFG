@@ -8,7 +8,7 @@ import pandas as pd
 import requests
 import xml.etree.ElementTree as ET
 
-from .config import settings
+from app.core.config import settings
 
 
 def _build_fbl1n_xml(

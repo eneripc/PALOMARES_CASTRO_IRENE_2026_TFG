@@ -12,8 +12,8 @@ import pandas as pd
 from openpyxl.styles import Alignment, Color, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from .hotel_map import resolve_sociedades
-from .sap_client import fbl1n
+from app.shared.hotel_map import resolve_sociedades
+from app.infraestructure.sap_client import fbl1n
 
 
 

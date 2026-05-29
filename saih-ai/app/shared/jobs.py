@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 
 import pyodbc
 
-from .config import settings
+from app.core.config import settings
 
 
 def _connection_string() -> str:

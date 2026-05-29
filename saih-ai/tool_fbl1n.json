@@ -1,0 +1,76 @@
+{
+  "tools": [
+    {
+      "name": "start_fbl1n_analysis",
+      "description": "Inicia un análisis FBL1N de cuentas por pagar y devuelve un jobId para seguimiento del proceso.",
+      "endpoint": "https://ca-saih-ai-test.lemonriver-c823d497.swedencentral.azurecontainerapps.io/v1/reports/fbl1n",
+  
+      "method": "POST",
+      "headers": {
+        "Content-Type": "application/json",
+        "x-api-key": "<API_KEY>"
+      },
+      "request_schema": {
+        "type": "object",
+        "properties": {
+          "company_code": {
+            "type": "string",
+            "description": "Código de sociedad SAP"
+          },
+          "date_from": {
+            "type": "string",
+            "description": "Fecha de inicio del análisis"
+          },
+          "date_to": {
+            "type": "string",
+            "description": "Fecha de fin del análisis"
+          },
+          "outputs": {
+            "type": "object",
+            "properties": {
+              "excel": {
+                "type": "boolean",
+                "description": "Indica si se debe generar un archivo Excel"
+              }
+            }
+          }
+        },
+        "required": ["company_code", "date_from", "date_to", "outputs"]
+      }
+    },
+    {
+      "name": "check_fbl1n_job_status",
+      "description": "Consulta el estado de un análisis FBL1N en ejecución.",
+      "endpoint": "https://ca-saih-ai-test.lemonriver-c823d497.swedencentral.azurecontainerapps.io/v1/reports/jobs/{job_id}",
+      "method": "GET",
+      "headers": {
+        "x-api-key": "<API_KEY>"
+      },
+      "path_params": [
+        {
+          "name": "job_id",
+          "type": "string",
+          "description": "Identificador del job"
+        }
+      ]
+    },
+    {
+      "name": "get_fbl1n_job_result",
+      "description": "Obtiene el resultado final de un análisis FBL1N completado.",
+      "endpoint": "https://ca-saih-ai-test.lemonriver-c823d497.swedencentral.azurecontainerapps.io/v1/reports/jobs/{job_id}/result",
+      "method": "GET",
+      "headers": {
+        "x-api-key": "<API_KEY>"
+      },
+      "path_params": [
+        {
+          "name": "job_id",
+          "type": "string",
+          "description": "Identificador del job completado"
+        }
+      ]
+    }
+  ],
+
+  "agent_instructions": "Eres un agente auditor especializado en cuentas por pagar y en el análisis FBL1N de SAP.\n\nTu función es ayudar al usuario a solicitar análisis, interpretar resultados y explicar incidencias de forma clara, profesional y trazable.\n\nNormas de comportamiento:\n1. Debes utilizar exclusivamente las herramientas disponibles para iniciar, consultar y recuperar análisis FBL1N.\n2. No debes inventar datos, cifras ni conclusiones que no estén en la respuesta de la API.\n3. Si el usuario solicita un análisis FBL1N:\n   - primero llama a la herramienta start_fbl1n_analysis;\n   - después consulta periódicamente el estado con check_fbl1n_job_status;\n   - cuando el estado sea \"succeeded\", llama a get_fbl1n_job_result.\n4. Si el estado del job es \"queued\" o \"running\", informa al usuario de que el análisis sigue en progreso.\n5. Si el estado es \"failed\", informa del error sin especular sobre causas no proporcionadas por la API.\n6. Si el resultado incluye archivos, debes indicar claramente su nombre y disponibilidad.\n7. Al explicar resultados:\n   - resume el estado general;\n   - menciona el número de proveedores con solicitud si aparece;\n   - menciona el número de registros de anticipos si aparece.\n8. Debes mantener un tono profesional, preciso y prudente.\n9. No debes responder fuera del ámbito de auditoría de cuentas por pagar si no tienes datos suficientes."
+}
