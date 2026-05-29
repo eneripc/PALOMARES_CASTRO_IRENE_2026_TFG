@@ -44,11 +44,28 @@ tfg-ml-audit/
 ## Flujo Lógico de Cómputo Inter-Componente
 El sistema opera mediante una separación estricta de responsabilidades entre el entorno de investigación experimental y el ecosistema web productivo:
 
-[ Datos Brutos SAP ] ──► [ data_pipeline.py ] ──► [ predictive_modeling.py ] ──► [ outputs/ Excel Evidencias ]
-                                │                           │
-                                ▼                           ▼
-                      (ETL y Reglas Heurísticas)   (Machine Learning / Forecast)
-                      
+```
+┌─────────────────────────────────┐
+│     CxP_analisis.ipynb          │ ◄── (Cuaderno orquestador interactivo del TFG)
+└────────────────┬────────────────┘
+                 │
+                 ▼ Invocación de módulos locales
+┌─────────────────────────────────┐
+│       src/data_pipeline.py      │ ◄── (Extracción SAP, Limpieza Transaccional y Reglas Heurísticas)
+└────────────────┬────────────────┘
+                 │
+                 ▼ Inyección de características estructuradas
+┌─────────────────────────────────┐
+│   src/ml_pipeline.py            │ ◄── (Zero-Shot NLP, Ensambles Random Forest y Series Temporales)
+└────────────────┬────────────────┘
+                 │
+                 ▼ Escritura de artefactos binarios de control
+┌─────────────────────────────────┐
+│            outputs/             │ ◄── (Libros Excel multi-página formateados para el Auditor)
+└─────────────────────────────────┘
+
+```
+
 1. CxP_analisis.ipynb: Actúa como el orquestador interactivo para la validación científica. Ejecuta secuencialmente las celdas invocando a los scripts de la carpeta src/.
 
 2. src/data_pipeline.py: Asume las tareas de ingeniería de datos. Limpia el ruido del extracto SAP, normaliza monedas, aplica etiquetas semánticas y evalúa los controles de anticipos o facturas duplicadas.
