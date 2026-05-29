@@ -13,24 +13,29 @@ El ecosistema está estructurado en dos vertientes: el núcleo analítico de exp
 ```text
 tfg-ml-audit/
 ├── .github/workflows/          # Pipelines CI/CD corporativos (GitHub Actions)
-├── src/                # Scripts de ingeniería de datos y modelado
-│   ├── data_pipeline.py            # Funciones helper, ETL, casuística y reglas analíticas
-│   ├── ml_pipeline.py                   # Modelos de Machine Learning y algoritmos de Forecasting
-│   ├── CxP_analisis.ipynb         # Pipeline analítico y ejecución completa de experimentos
-│   └── README.md                # 
+│           
+├── src/                        # Scripts de ingeniería de datos y modelado
+│   ├── data_pipeline.py        # Funciones helper, ETL, casuística y reglas analíticas
+│   ├── ml_pipeline.py          # Modelos de Machine Learning y algoritmos de Forecasting
+│   ├── CxP_analisis.ipynb      # Pipeline analítico y ejecución completa de experimentos
+│   └── README.md
+│                 
 ├── outputs/
-│   ├── Excel_Maya.xlsx          # Hoja de calculo con los resultados de CxP de Maya
-│   ├── Excel_Bavaro.xlsx        # Hoja de calculo con los resultados de CxP de Bávaro                  
-│   ├── ML_Maya.xlsx             # Hoja de calculo con los resultados del pipeline de Maya
-│   └── ML_Bavaro.xlsx           # Hoja de calculo con los resultados del pipeline de Bávaro
+│   ├── Excel_Maya.xlsx         # Hoja de calculo con los resultados de CxP de Maya
+│   ├── Excel_Bavaro.xlsx       # Hoja de calculo con los resultados de CxP de Bávaro                  
+│   ├── ML_Maya.xlsx            # Hoja de calculo con los resultados del pipeline de Maya
+│   └── ML_Bavaro.xlsx          # Hoja de calculo con los resultados del pipeline de Bávaro
+│
 ├── imgs/                       # Galería inmutable de diagramas y evidencias del TFG
 │   └── [Figura_*.png]          # Gráficos de arquitectura, PCA, Clustering y Pronósticos
+│
 ├── saih-ai/                    # Backend modular de producción (API REST asíncrona)
 │   ├── app/                    # Código estructurado de la solución en Microsoft Azure
 │   ├── Dockerfile              # Manifiesto de contenerización inmutable
 │   ├── main.py                 # Punto de entrada de FastAPI y coordinación de rutas
 │   ├── tool_fbl1n.json         # Manifiesto técnico para la invocación semántica del Agente
 │   └── requirements.txt        # Dependencias de producción cloud
+│
 ├── .gitignore                  # Exclusión estricta de binarios pesados (*.pkl, *.xlsx)
 └── README.md                   # Documentación principal del ecosistema
 
