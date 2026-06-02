@@ -25,17 +25,17 @@ El proyecto sigue una arquitectura modular basada en la separación de responsab
 app/
 │
 ├── core/
-│   ├── **init**.py
+│   ├── __init__.py
 │   ├── config.py
 │   ├── auth.py
 │
 ├── infrastructure/
-│   ├── **init**.py
+│   ├── __init__.py
 │   ├── sap\_client.py
 │   ├── storage.py
 │
 ├── shared/
-│   ├── **init**.py
+│   ├── __init__.py
 │   ├── models.py
 │   ├── jobs.py
 │   ├── hotel\_map.py
@@ -46,10 +46,10 @@ app/
 │   │   ├── main\_cxp.py
 │   │   ├── pipeline\_cxp.py
 │   │
-│   ├── cxc/                           <-- EJEMPLO
-│   │   ├── **init**.py
-│   │   ├── main\_cxc.py
-│   │   ├── pipeline\_cxc.py
+│   ├── */                          
+│   │   ├── __init__.py
+│   │   ├── main_*.py
+│   │   ├── pipeline_*.py
 │
 ├── main.py  
 │
@@ -96,7 +96,7 @@ uvicorn app.main:app --reload
 
 ```bash
 docker build -t saih-ai .
-docker run -p 8000:8000 saih-ai
+docker run -p 8080:8080 saih-ai
 ```
 
 ***
@@ -118,7 +118,6 @@ Documentación interactiva disponible en:
 Actualmente el sistema incluye los siguientes informes:
 
 * **CXP (Accounts Payable)** → `app/reports/cxp`
-* **CXC (Accounts Receivable)** → `app/reports/cxc` (extensible)
 
 Cada informe define:
 
@@ -189,4 +188,3 @@ VERSION
 ## Licencia
 
 Uso interno 
-```

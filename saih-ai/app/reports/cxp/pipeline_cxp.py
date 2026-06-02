@@ -1103,3 +1103,214 @@ def generate_excel(df_fact: pd.DataFrame, req, out_dir: str) -> str:
     path = os.path.join(out_dir, target_name)
 
     return excel(df_fact, path)
+
+# HELPERS ------------------------------------------------------------------------------------------
+from typing import Any
+import pandas as pd
+
+
+def _is_nonempty(value: Any) -> bool:
+    if pd.isna(value):
+        return False
+    if isinstance(value, str) and value.strip() == "":
+        return False
+    return True
+
+
+def _to_str(value: Any):
+    if pd.isna(value):
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
+def _to_float(value: Any):
+    if pd.isna(value):
+        return None
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def build_line_items(df_cas: pd.DataFrame | None, df_ant: pd.DataFrame | None) -> list[dict]:
+    items = []
+
+    # ---------------------------
+    # CxP: acreedoras/deudoras/Z6
+    # ---------------------------
+    if df_cas is not None and not df_cas.empty:
+        df = df_cas.copy()
+
+        mask = (
+            df["_is_total"].eq(0)
+            & (
+                df["Solicitud"].apply(_is_nonempty)
+                | df["Análisis"].astype(str).str.contains(
+                    "Incidencia|Acreedora antigua|Deudora Antigua|Revisar Z6",
+                    na=False
+                )
+            )
+        )
+
+        for _, row in df.loc[mask].iterrows():
+            items.append({
+                "fecha_clave": _to_str(row.get("Fecha Clave")),
+                "sociedad": _to_str(row.get("Sociedad")),
+                "cuenta": _to_str(row.get("Cuenta")),
+                "nombre1": _to_str(row.get("Nombre1")),
+                "n_doc": _to_str(row.get("N_doc")),
+                "clase": _to_str(row.get("Clase")),
+                "texto": _to_str(row.get("Texto")),
+                "importe_ml": _to_float(row.get("ImpteML")),
+                "ml": _to_str(row.get("ML")),
+                "antiguedad": _to_float(row.get("Antigüedad")),
+                "demora": _to_float(row.get("Demora")),
+                "categoria": "cxp",
+                "casuistica": _to_str(row.get("Casuística")),
+                "etiqueta": _to_str(row.get("Etiqueta")) if "Etiqueta" in row else None,
+                "analisis": _to_str(row.get("Análisis")),
+                "solicitud": _to_str(row.get("Solicitud")),
+            })
+
+    # ---------------------------
+    # Anticipos / retenciones
+    # ---------------------------
+    if df_ant is not None and not df_ant.empty:
+        df = df_ant.copy()
+
+        mask = df["_is_total"].eq(0) & df["Solicitud"].apply(_is_nonempty)
+
+        for _, row in df.loc[mask].iterrows():
+            items.append({
+                "fecha_clave": _to_str(row.get("Fecha Clave")),
+                "sociedad": _to_str(row.get("Sociedad")),
+                "cuenta": _to_str(row.get("Cuenta")),
+                "nombre1": _to_str(row.get("Nombre1")),
+                "n_doc": _to_str(row.get("N_doc")),
+                "clase": _to_str(row.get("Clase")),
+                "texto": _to_str(row.get("Texto")),
+                "importe_ml": _to_float(row.get("ImpteML")),
+                "ml": _to_str(row.get("ML")),
+                "antiguedad": _to_float(row.get("Antigüedad")),
+                "demora": _to_float(row.get("Demora")),
+                "categoria": "anticipos",
+                "casuistica": None,
+                "etiqueta": _to_str(row.get("Etiqueta")),
+                "analisis": _to_str(row.get("Análisis")),
+                "solicitud": _to_str(row.get("Solicitud")),
+            })
+
+    return items
+
+
+def build_supplier_requests(df_cas: pd.DataFrame | None, df_ant: pd.DataFrame | None) -> list[dict]:
+    requests = []
+
+    keys = ["Fecha Clave", "Sociedad", "Cuenta", "Nombre1"]
+
+    # ---------------------------
+    # CxP: usar fila TOTAL con solicitud
+    # ---------------------------
+    if df_cas is not None and not df_cas.empty:
+        df = df_cas.copy()
+
+        totals = df[
+            (df["_is_total"] == 1)
+            & (df["Solicitud"].apply(_is_nonempty))
+        ].copy()
+
+        for _, total in totals.iterrows():
+            prov_mask = (
+                (df["_is_total"] == 0)
+                & (df["Fecha Clave"] == total["Fecha Clave"])
+                & (df["Sociedad"] == total["Sociedad"])
+                & (df["Cuenta"] == total["Cuenta"])
+                & (df["Nombre1"] == total["Nombre1"])
+            )
+
+            related = df.loc[prov_mask].copy()
+
+            incidencias = sorted(set(
+                related["Análisis"].dropna().astype(str)
+            ))
+
+            conceptos = sorted(set(
+                related["Texto"].dropna().astype(str)
+            ))
+
+            requests.append({
+                "fecha_clave": _to_str(total.get("Fecha Clave")),
+                "sociedad": _to_str(total.get("Sociedad")),
+                "cuenta": _to_str(total.get("Cuenta")),
+                "nombre1": _to_str(total.get("Nombre1")),
+                "tipo_origen": ["cxp"],
+                "saldo_total": _to_float(total.get("ImpteML")),
+                "moneda": _to_str(total.get("ML")),
+                "solicitud": _to_str(total.get("Solicitud")),
+                "incidencias_detectadas": incidencias,
+                "conceptos_relacionados": conceptos,
+                "n_partidas_relacionadas": int(len(related)),
+            })
+
+    # ---------------------------
+    # Anticipos / retenciones
+    # ---------------------------
+    if df_ant is not None and not df_ant.empty:
+        df = df_ant.copy()
+
+        part = df[
+            (df["_is_total"] == 0)
+            & (df["Solicitud"].apply(_is_nonempty))
+        ].copy()
+
+        if not part.empty:
+            grouped = part.groupby(keys, dropna=False)
+
+            for provider_key, group in grouped:
+                fecha_clave, sociedad, cuenta, nombre1 = provider_key
+
+                solicitudes = list(dict.fromkeys(
+                    group["Solicitud"].dropna().astype(str).tolist()
+                ))
+                analisis = list(dict.fromkeys(
+                    group["Análisis"].dropna().astype(str).tolist()
+                ))
+                conceptos = list(dict.fromkeys(
+                    group["Texto"].dropna().astype(str).tolist()
+                ))
+
+                total_row = df[
+                    (df["_is_total"] == 1)
+                    & (df["Fecha Clave"] == fecha_clave)
+                    & (df["Sociedad"] == sociedad)
+                    & (df["Cuenta"] == cuenta)
+                    & (df["Nombre1"] == nombre1)
+                ]
+
+                saldo_total = None
+                moneda = None
+                if not total_row.empty:
+                    saldo_total = _to_float(total_row.iloc[0].get("ImpteML"))
+                    moneda = _to_str(total_row.iloc[0].get("ML"))
+
+                solicitud_unificada = " ".join(
+                    [f"({i+1}) {s}" for i, s in enumerate(solicitudes)]
+                )
+
+                requests.append({
+                    "fecha_clave": _to_str(fecha_clave),
+                    "sociedad": _to_str(sociedad),
+                    "cuenta": _to_str(cuenta),
+                    "nombre1": _to_str(nombre1),
+                    "tipo_origen": ["anticipos"],
+                    "saldo_total": saldo_total,
+                    "moneda": moneda,
+                    "solicitud": solicitud_unificada,
+                    "incidencias_detectadas": analisis,
+                    "conceptos_relacionados": conceptos,
+                    "n_partidas_relacionadas": int(len(group)),
+                })
+
+    return requests

@@ -1,50 +1,64 @@
-# app/main.py
+# app/reports/main_cxp.py
 # API principal para lanzar y consultar análisis FBL1N
 
 import json
 import os
 import tempfile
 import uuid
+import pandas as pd
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, HTTPException, APIRouter
+#from fastapi.security.api_key import APIKeyHeader
+
 from app.core.auth import require_api_key
 
-from app.shared.jobs import create_job, fail_job, get_job, init_db, update_job
+from app.shared.jobs import create_job, fail_job, get_job, update_job
 from app.shared.models import (
     Fbl1nRequest,
     JobResultResponse,
     JobStatusResponse,
     StartJobResponse,
 )
-from .pipeline_cxp import build_fbl1n_fact, generate_excel, run_analitica
-from app.infraestructure.storage import ensure_container_exists, generate_blob_sas_url, upload_file_to_blob
+from .pipeline_cxp import build_fbl1n_fact, generate_excel, run_analitica, build_supplier_requests, build_line_items
+from app.infraestructure.storage import generate_blob_sas_url, upload_file_to_blob
 
 
-app = FastAPI(title="FBL1N Reporting API", version="1.0.0")
+router = APIRouter(prefix="/v1/reports/cxp", tags=["CXP"])
 
+#api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
-@app.on_event("startup")
-def _startup() -> None:
-    """
-    Inicializa recursos necesarios al arrancar la aplicación:
-    - tabla de jobs en Azure SQL
-    - contenedor de Azure Blob Storage
-    """
-    init_db()
-    ensure_container_exists()
+def _summarize(
+    supplier_requests: list[dict] | None,
+    line_items: list[dict] | None,
+    df_ant: pd.DataFrame | None = None,
+) -> dict:
+    supplier_requests = supplier_requests or []
+    line_items = line_items or []
 
+    proveedores_con_solicitud = len({
+        (r.get("fecha_clave"), r.get("sociedad"), r.get("cuenta"))
+        for r in supplier_requests
+    })
 
-def _summarize(df_cas, df_ant) -> dict:
-    """
-    Construye un resumen simple del resultado.
-    """
-    summary = {}
+    proveedores_cxp = len({
+        (r.get("fecha_clave"), r.get("sociedad"), r.get("cuenta"))
+        for r in supplier_requests
+        if "cxp" in (r.get("tipo_origen") or [])
+    })
 
-    if df_cas is not None and "Solicitud" in df_cas.columns:
-        summary["proveedores_con_solicitud"] = int(df_cas["Solicitud"].notna().sum())
+    proveedores_anticipos = len({
+        (r.get("fecha_clave"), r.get("sociedad"), r.get("cuenta"))
+        for r in supplier_requests
+        if "anticipos" in (r.get("tipo_origen") or [])
+    })
 
-    if df_ant is not None:
-        summary["anticipos_rows"] = int(len(df_ant))
+    summary = {
+        "proveedores_con_solicitud": proveedores_con_solicitud,
+        "proveedores_cxp": proveedores_cxp,
+        "proveedores_anticipos": proveedores_anticipos,
+        "partidas_con_incidencia": len(line_items),
+        "anticipos_rows": int(len(df_ant)) if df_ant is not None else 0,
+    }
 
     return summary
 
@@ -97,16 +111,24 @@ def run_job(job_id: str, req: Fbl1nRequest) -> None:
                 }
             )
 
-            # Limpieza del archivo temporal local
             try:
                 os.remove(xlsx_path)
             except OSError:
                 pass
 
+        line_items = build_line_items(df_cas, df_ant)
+        supplier_requests = build_supplier_requests(df_cas, df_ant)
+
         result_payload = {
             "jobId": job_id,
             "state": "succeeded",
-            "summary": _summarize(df_cas, df_ant),
+            "summary": _summarize(
+                supplier_requests=supplier_requests,
+                line_items=line_items,
+                df_ant=df_ant,
+            ),
+            "supplier_requests": supplier_requests,
+            "line_items": line_items,
             "files": files,
         }
 
@@ -115,15 +137,18 @@ def run_job(job_id: str, req: Fbl1nRequest) -> None:
             state="succeeded",
             progress=100,
             step="Finalizado",
-            result_json=json.dumps(result_payload, ensure_ascii=False),
+            result_json=json.dumps(
+                result_payload,
+                ensure_ascii=False,
+                default=str
+            ),
         )
 
     except Exception as e:
         fail_job(job_id, e)
 
-
-@app.post(
-    "/v1/reports/fbl1n",
+@router.post(
+    "/fbl1n",
     response_model=StartJobResponse,
     status_code=202,
     summary="Inicia análisis FBL1N y generación de informe de auditoría",
@@ -150,7 +175,8 @@ def run_job(job_id: str, req: Fbl1nRequest) -> None:
         "- A continuación se debe llamar al endpoint de estado (status).\n\n"
         "Sinónimos: FBL1N, análisis de proveedores, cuentas a pagar, AP, auditoría, reporte financiero."
     ),
-    dependencies=[Depends(require_api_key)],
+    #dependencies=[Depends(require_api_key)]
+
 )
 def start_fbl1n(req: Fbl1nRequest, bg: BackgroundTasks):
     """
@@ -165,9 +191,8 @@ def start_fbl1n(req: Fbl1nRequest, bg: BackgroundTasks):
         statusUrl=f"/v1/reports/jobs/{job_id}",
     )
 
-
-@app.get(
-    "/v1/reports/jobs/{job_id}",
+@router.get(
+    "/jobs/{job_id}",
     response_model=JobStatusResponse,
     summary="Consultar estado de un análisis FBL1N",
     description=(
@@ -187,8 +212,9 @@ def start_fbl1n(req: Fbl1nRequest, bg: BackgroundTasks):
         "3. Cuando state = 'succeeded', llamar al endpoint de resultado\n\n"
         "Este endpoint no devuelve resultados finales ni archivos."
     ),
-    dependencies=[Depends(require_api_key)],
+    #dependencies=[Depends(require_api_key)]
 )
+
 def status(job_id: str):
     """
     Devuelve el estado actual del job.
@@ -206,9 +232,8 @@ def status(job_id: str):
         error=job["error"],
     )
 
-
-@app.get(
-    "/v1/reports/jobs/{job_id}/result",
+@router.get(
+    "/jobs/{job_id}/result",
     response_model=JobResultResponse,
     summary="Obtener resultado final del análisis FBL1N",
     description=(
@@ -231,7 +256,7 @@ def status(job_id: str):
         "3. Obtener resultado (este endpoint)\n\n"
         "Sinónimos: resultado análisis, informe final, reporte FBL1N, output auditoría."
     ),
-    dependencies=[Depends(require_api_key)],
+    #dependencies=[Depends(require_api_key)]
 )
 def result(job_id: str):
     """
