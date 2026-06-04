@@ -31,7 +31,6 @@ tfg-ml-audit/
 │   ├── app/                     
 │   ├── Dockerfile               
 │   ├── main.py                  
-│   ├── tool_fbl1n.json          
 │   └── requirements.txt         
 │
 ├── .gitignore                   
