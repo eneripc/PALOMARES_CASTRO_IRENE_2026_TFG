@@ -21,23 +21,23 @@ tfg-ml-audit/
 │   └── README.md
 │                 
 ├── outputs/
-│   ├── Excel_Maya.xlsx         # Hoja de calculo con los resultados de CxP de Maya
-│   ├── Excel_Bavaro.xlsx       # Hoja de calculo con los resultados de CxP de Bávaro                  
-│   ├── ML_Maya.xlsx            # Hoja de calculo con los resultados del pipeline de Maya
-│   └── ML_Bavaro.xlsx          # Hoja de calculo con los resultados del pipeline de Bávaro
+│   ├── Excel_Maya.xlsx          
+│   ├── Excel_Bavaro.xlsx                        
+│   ├── ML_Maya.xlsx            
+│   └── ML_Bavaro.xlsx          
 │
-├── imgs/                       # Galería inmutable de diagramas y evidencias del TFG
-│   └── [Figura_*.png]          # Gráficos de arquitectura, PCA, Clustering y Pronósticos
+├── imgs/                       
+│   └── [Figura_*.png]           
 │
-├── saih-ai/                    # Backend modular de producción (API REST asíncrona)
-│   ├── app/                    # Código estructurado de la solución en Microsoft Azure
-│   ├── Dockerfile              # Manifiesto de contenerización inmutable
-│   ├── main.py                 # Punto de entrada de FastAPI y coordinación de rutas
-│   ├── tool_fbl1n.json         # Manifiesto técnico para la invocación semántica del Agente
-│   └── requirements.txt        # Dependencias de producción cloud
+├── saih-ai/                     
+│   ├── app/                     
+│   ├── Dockerfile               
+│   ├── main.py                  
+│   ├── tool_fbl1n.json          
+│   └── requirements.txt         
 │
-├── .gitignore                  # Exclusión estricta de binarios pesados (*.pkl, *.xlsx)
-└── README.md                   # Documentación principal del ecosistema
+├── .gitignore                   
+└── README.md                    
 
 ```
 ---
@@ -77,29 +77,15 @@ El sistema opera mediante una separación estricta de responsabilidades entre el
 Para consultar las guías técnicas de despliegue cloud en la infraestructura de Microsoft Azure, uvicorn y contenerización Docker del Agente conversacional, acceda de forma directa al saih-ai/README.md.
 ---
 
-## Automatización Operacional DevOps (GitHub Actions)
-
-El ciclo de vida de la aplicación se gestiona bajo principios estrictos de integración y entrega continua (*CI/CD*) configurados en `.github/workflows/`, divididos de forma determinista en tres fases inmutables:
-
-* **`cicd` (Validación):** Orquesta los procesos de verificación sintáctica estática (*linting*), pruebas unitarias y tipado estricto ante eventos de *push* o *pull request* en la rama `main`.
-* **`cidocker` (Compilación):** Levanta de forma automatizada el demonio de Docker, compila las capas optimizadas (`--no-cache-dir`) sobre la imagen base `python:3.11-slim`, firma el artefacto y lo publica en el registro privado de contenedores de la organización (*Azure Container Registry*).
-* **`cd-deploy` (Despliegue):** Realiza la autenticación federada con Microsoft Azure, actualiza la revisión activa en el clúster sin servidor de **Azure Container Apps (`ca-saih-ai-test`)** y ejecuta un despliegue progresivo (*rolling update*) con tolerancia a fallos y sin caídas de servicio.
-
----
-
 ## Índice Temático de Evidencias e Ilustraciones (`imgs/`)
 
 Para realizar consultas o verificaciones gráficas rápidas sobre el marco teórico y analítico expuesto en la memoria del TFG, puedes consultar de manera directa las imágenes indexadas dentro del repositorio:
-
-### Capas de Arquitectura y Flujo de Control
 
 * [Figura 3.1. Arquitectura de acceso a datos](https://www.google.com/search?q=./imgs/Figura%25203.1.%2520Arquitectura%2520de%2520acceso%2520a%2520datos.png)
 * [Figura 4.1. Flujo general de control del sistema](https://www.google.com/search?q=./imgs/Figura%25204.1%2520.Flujo%2520general%2520del%2520sistema.png)
 * [Figura 4.2. Clasificación heurística de partidas contables](https://www.google.com/search?q=./imgs/Figura%25204.2.%2520Clasificaci%C3%B3n%2520de%2520partidas%2520contables.png)
 * [Figura 4.3. Generación automatizada de solicitudes a proveedores](https://www.google.com/search?q=./imgs/Figura%25204.3.%2520Generaci%C3%B3n%2520de%2520solicitudes%2520a%2520proveedores.png)
 * [Figura 4.4. Ecuación y cálculo del riesgo global unificado](https://www.google.com/search?q=./imgs/Figura%25204.4.%2520C%C3%A1lculo%2520del%2520riesgo%2520global.png)
-
-### Comportamiento Estadístico Transaccional por UE
 
 * [Figura 7.1. Distribución de la casuística de control interno por UE](https://www.google.com/search?q=./imgs/Figura%25207.1.%2520Distribuci%C3%B3n%2520de%2520la%2520casu%C3%ADstica%2520por%2520unidad%2520de%2520explotaci%C3%B3n%2520%2528UE%2529.png)
 * [Figura 7.2. Distribución de análisis macro por UE (Top categorías)](https://www.google.com/search?q=./imgs/Figura%25207.2.%2520Distribuci%C3%B3n%2520del%2520an%C3%A1lisis%2520por%2520unidad%2520de%2520explotaci%C3%B3n%2520%2528Top%2520categor%C3%ADas%2529.png)
@@ -109,7 +95,6 @@ Para realizar consultas o verificaciones gráficas rápidas sobre el marco teór
 * [Figura 7.8. Distribución de niveles jerárquicos de riesgo por UE](https://www.google.com/search?q=./imgs/Figura%25207.8.%2520Distribuci%C3%B3n%2520de%2520niveles%2520de%2520riesgo%2520por%2520unidad%2520de%2520explotaci%C3%B3n.png)
 * [Figura 7.9. Dispersión del riesgo medio y porcentaje de duplicidades por UE](https://www.google.com/search?q=./imgs/Figura%25207.9.%2520Riesgo%2520medio%2520y%2520porcentaje%2520de%2520duplicados%2520por%2520unidad%2520de%2520explotaci%C3%B3n.png)
 
-### Reducción de Dimensionalidad PCA y Clustering No Supervisado
 
 * [Figura 7.6. Representación PCA tridimensional del clustering de partidas en Maya](https://www.google.com/search?q=./imgs/Figura%25207.6.%2520Representaci%C3%B3n%2520PCA%2520del%2520clustering%2520en%2520la%2520UE%2520Maya.png)
 * [Figura 7.7. Representación PCA tridimensional del clustering de partidas en Bávaro](https://www.google.com/search?q=./imgs/Figura%25207.7.%2520Representaci%C3%B3n%2520PCA%2520del%2520clustering%2520en%2520la%2520UE%2520B%C3%A1varo.png)
@@ -128,31 +113,9 @@ Para realizar consultas o verificaciones gráficas rápidas sobre el marco teór
 * [Figura 7.18. Escenario predictivo multivariable avanzado en la UE Bávaro](https://www.google.com/search?q=./imgs/Figura%25207.18.%2520Forecast%2520multivariable%2520en%2520la%2520UE%2520B%C3%A1varo.png)
 * [Figura 7.19. Escenario predictivo multivariable avanzado en la UE Maya](https://www.google.com/search?q=./imgs/Figura%25207.19.%2520Forecast%2520multivariable%2520en%2520la%2520UE%2520Maya.png)
 
-### Entorno Cloud Productivo Corporativo (Producción)
 
 * [Figura 8.1. Arquitectura del pipeline y comportamiento secuencial interno de la API](https://www.google.com/search?q=./imgs/Figura%25208.1.%2520Comportamiento%2520anal%C3%ADtico%2520interno%2520de%2520la%2520API%2520REST%2520corporativa..png)
 * [Figura 8.2. Topología de implantación de recursos inmutables en Microsoft Azure](https://www.google.com/search?q=./imgs/Figura%25208.2.%2520Arquitectura%2520de%2520implantaci%C3%B3n%2520en%2520entorno%2520corporativo.png)
-
----
-
-## Variables de Entorno y Configuración de Seguridad
-
-Para desplegar y ejecutar de manera local o en la nube el microservicio contenido en `saih-ai/`, es un requisito técnico indispensable instanciar un archivo de secretos corporativos `.env` en la raíz de dicho directorio que contenga las siguientes cadenas de conexión cifradas heredadas de la infraestructura:
-
-```env
-# CREDENCIALES EXTRACCIÓN ERP SAP
-SAP_SOAP_ENDPOINT=[https://sap-erp.bhg-corp.com/v1/Z_FBL1N_WS](https://sap-erp.bhg-corp.com/v1/Z_FBL1N_WS)
-SAP_USER=AUDIT_USER_PROXY
-SAP_PASSWORD=CriptoPasswordToken88
-
-# SEGURIDAD DE ACCESO CAPA SERVICIOS
-X_API_KEY=Bbhg_Crypto_Secure_Service_Token_2026
-
-# GOBERNANZA PERSISTENCIA CLOUD MICROSOFT AZURE
-AZURE_SQL_CONNECTION_STRING=Driver={ODBC Driver 18 for SQL Server};Server=tcp:sql-saih-ai-test.database.windows.net...
-AZURE_BLOB_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=st-saih-ai-test...
-
-```
 
 ---
 
