@@ -1,6 +1,4 @@
-# tfg-ml-audit
-
-# Auditoría Continua y Análisis Predictivo de Cuentas por Pagar (CxP) mediante Machine Learning e IA Cognitiva
+# Auditoría Continua y Análisis Predictivo de Cuentas por Pagar (CxP) medianteIA
 
 Este repositorio contiene la implementación integral del sistema desarrollado para la automatización analítica, detección de anomalías y auditoría conversacional sobre extractos transaccionales SAP FBL1N en entornos corporativos (caso de estudio aplicado a las Unidades de Explotación de Maya y Bávaro en Barceló Hotel Group).
 
