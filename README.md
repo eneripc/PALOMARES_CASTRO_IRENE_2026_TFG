@@ -12,12 +12,12 @@ El ecosistema está estructurado en dos vertientes: el núcleo analítico de exp
 
 ```text
 tfg-ml-audit/
-├── .github/workflows/          # Pipelines CI/CD corporativos (GitHub Actions)
+├── .github/workflows/           
 │           
-├── src/                        # Scripts de ingeniería de datos y modelado
-│   ├── data_pipeline.py        # Funciones helper, ETL, casuística y reglas analíticas
-│   ├── ml_pipeline.py          # Modelos de Machine Learning y algoritmos de Forecasting
-│   ├── CxP_analisis.ipynb      # Pipeline analítico y ejecución completa de experimentos
+├── src/                         
+│   ├── data_pipeline.py         
+│   ├── ml_pipeline.py          
+│   ├── CxP_analisis.ipynb      
 │   └── README.md
 │                 
 ├── outputs/
