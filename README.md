@@ -79,43 +79,7 @@ Para consultar las guías técnicas de despliegue cloud en la infraestructura de
 
 ## Índice Temático de Evidencias e Ilustraciones (`imgs/`)
 
-Para realizar consultas o verificaciones gráficas rápidas sobre el marco teórico y analítico expuesto en la memoria del TFG, puedes consultar de manera directa las imágenes indexadas dentro del repositorio:
-
-* [Figura 3.1. Arquitectura de acceso a datos](https://www.google.com/search?q=./imgs/Figura%25203.1.%2520Arquitectura%2520de%2520acceso%2520a%2520datos.png)
-* [Figura 4.1. Flujo general de control del sistema](https://www.google.com/search?q=./imgs/Figura%25204.1%2520.Flujo%2520general%2520del%2520sistema.png)
-* [Figura 4.2. Clasificación heurística de partidas contables](https://www.google.com/search?q=./imgs/Figura%25204.2.%2520Clasificaci%C3%B3n%2520de%2520partidas%2520contables.png)
-* [Figura 4.3. Generación automatizada de solicitudes a proveedores](https://www.google.com/search?q=./imgs/Figura%25204.3.%2520Generaci%C3%B3n%2520de%2520solicitudes%2520a%2520proveedores.png)
-* [Figura 4.4. Ecuación y cálculo del riesgo global unificado](https://www.google.com/search?q=./imgs/Figura%25204.4.%2520C%C3%A1lculo%2520del%2520riesgo%2520global.png)
-
-* [Figura 7.1. Distribución de la casuística de control interno por UE](https://www.google.com/search?q=./imgs/Figura%25207.1.%2520Distribuci%C3%B3n%2520de%2520la%2520casu%C3%ADstica%2520por%2520unidad%2520de%2520explotaci%C3%B3n%2520%2528UE%2529.png)
-* [Figura 7.2. Distribución de análisis macro por UE (Top categorías)](https://www.google.com/search?q=./imgs/Figura%25207.2.%2520Distribuci%C3%B3n%2520del%2520an%C3%A1lisis%2520por%2520unidad%2520de%2520explotaci%C3%B3n%2520%2528Top%2520categor%C3%ADas%2529.png)
-* [Figura 7.3. Concentración y distribución del análisis de anticipos por UE](https://www.google.com/search?q=./imgs/Figura%25207.3.%2520Distribuci%C3%B3n%2520del%2520an%C3%A1lisis%2520de%2520anticipos%2520por%2520unidad%2520de%2520explotaci%C3%B3n.png)
-* [Figura 7.4. Distribución de etiquetas normativas Zero‑Shot por UE](https://www.google.com/search?q=./imgs/Figura%25207.4.%2520Distribuci%C3%B3n%2520de%2520etiquetas%2520Zero%E2%80%91Shot%2520por%2520unidad%2520de%2520explotaci%C3%B3n.png)
-* [Figura 7.5. Distribución de la densidad del score de riesgo global por UE](https://www.google.com/search?q=./imgs/Figura%25207.5.%2520Distribuci%C3%B3n%2520del%2520score%2520de%2520riesgo%2520global%2520por%2520unidad%2520de%2520explotaci%C3%B3n.png)
-* [Figura 7.8. Distribución de niveles jerárquicos de riesgo por UE](https://www.google.com/search?q=./imgs/Figura%25207.8.%2520Distribuci%C3%B3n%2520de%2520niveles%2520de%2520riesgo%2520por%2520unidad%2520de%2520explotaci%C3%B3n.png)
-* [Figura 7.9. Dispersión del riesgo medio y porcentaje de duplicidades por UE](https://www.google.com/search?q=./imgs/Figura%25207.9.%2520Riesgo%2520medio%2520y%2520porcentaje%2520de%2520duplicados%2520por%2520unidad%2520de%2520explotaci%C3%B3n.png)
-
-
-* [Figura 7.6. Representación PCA tridimensional del clustering de partidas en Maya](https://www.google.com/search?q=./imgs/Figura%25207.6.%2520Representaci%C3%B3n%2520PCA%2520del%2520clustering%2520en%2520la%2520UE%2520Maya.png)
-* [Figura 7.7. Representación PCA tridimensional del clustering de partidas en Bávaro](https://www.google.com/search?q=./imgs/Figura%25207.7.%2520Representaci%C3%B3n%2520PCA%2520del%2520clustering%2520en%2520la%2520UE%2520B%C3%A1varo.png)
-* [Figura 7.10. Representación PCA del clustering global consolidado de proveedores](https://www.google.com/search?q=./imgs/Figura%25207.10.%2520Representaci%C3%B3n%2520PCA%2520del%2520clustering%2520global%2520de%2520proveedores.png)
-* [Figura 7.11. Representación PCA de la segmentación de proveedores en la UE Maya](https://www.google.com/search?q=./imgs/Figura%25207.11.%2520Representaci%C3%B3n%2520PCA%2520del%2520clustering%2520de%2520proveedores%2520en%2520la%2520UE%2520Maya.png)
-* [Figura 7.12. Representación PCA de la segmentación de proveedores en la UE Bávaro](https://www.google.com/search?q=./imgs/Figura%25207.12.%2520Representaci%C3%B3n%2520PCA%2520del%2520clustering%2520de%2520proveedores%2520en%2520la%2520UE%2520B%C3%A1varo.png)
-
-### Modelado Temporal, Diagnóstico y Proyecciones Futuristas (Forecasting)
-
-* [Figura 6.1. Flujo metodológico del proceso de modelado de forecasting](https://www.google.com/search?q=./imgs/Figura%25206.1.%2520Flujo%2520del%2520proceso%2520de%2520forecasting.png)
-* [Figura 7.13. Descomposición analítica temporal en la Unidad de Explotación Maya](https://www.google.com/search?q=./imgs/Figura%25207.13.%2520An%C3%A1lisis%2520temporal%2520por%2520unidad%2520de%2520explotaci%C3%B3n%2520Maya.png)
-* [Figura 7.14. Descomposición analítica temporal en la Unidad de Explotación Bávaro](https://www.google.com/search?q=./imgs/Figura%25207.14.%2520An%C3%A1lisis%2520temporal%2520por%2520unidad%2520de%2520explotaci%C3%B3n%2520B%C3%A1varo.png)
-* [Figura 7.15. Diagnóstico de residuos del modelo ARIMA de forecasting en Maya](https://www.google.com/search?q=./imgs/Figura%25207.15.%2520Diagn%C3%B3stico%2520del%2520modelo%2520de%2520forecasting%2520en%2520la%2520UE%2520Maya.png)
-* [Figura 7.16. Diagnóstico de residuos del modelo ARIMA de forecasting en Bávaro](https://www.google.com/search?q=./imgs/Figura%25207.16.%2520Diagn%C3%B3stico%2520del%2520modelo%2520de%2520forecasting%2520en%2520la%2520UE%2520B%C3%A1varo.png)
-* [Figura 7.17. Pronóstico univariante del importe futuro por Unidad de Explotación](https://www.google.com/search?q=./imgs/Figura%25207.17.%2520Forecast%2520del%2520importe%2520por%2520unidad%2520de%2520explotaci%C3%B3n.png)
-* [Figura 7.18. Escenario predictivo multivariable avanzado en la UE Bávaro](https://www.google.com/search?q=./imgs/Figura%25207.18.%2520Forecast%2520multivariable%2520en%2520la%2520UE%2520B%C3%A1varo.png)
-* [Figura 7.19. Escenario predictivo multivariable avanzado en la UE Maya](https://www.google.com/search?q=./imgs/Figura%25207.19.%2520Forecast%2520multivariable%2520en%2520la%2520UE%2520Maya.png)
-
-
-* [Figura 8.1. Arquitectura del pipeline y comportamiento secuencial interno de la API](https://www.google.com/search?q=./imgs/Figura%25208.1.%2520Comportamiento%2520anal%C3%ADtico%2520interno%2520de%2520la%2520API%2520REST%2520corporativa..png)
-* [Figura 8.2. Topología de implantación de recursos inmutables en Microsoft Azure](https://www.google.com/search?q=./imgs/Figura%25208.2.%2520Arquitectura%2520de%2520implantaci%C3%B3n%2520en%2520entorno%2520corporativo.png)
+Para realizar consultas o verificaciones gráficas rápidas sobre el marco teórico y analítico expuesto en la memoria del TFG, puedes consultar de manera directa las imágenes indexadas dentro del repositorio en la carpeta imgs/
 
 ---
 
