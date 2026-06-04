@@ -71,6 +71,8 @@ El sistema opera mediante una separación estricta de responsabilidades entre el
 
 4. outputs/: Almacena los resultados del pipeline en un libro Excel multi-página formateado, aislando los casos candidatos a auditoría sustantiva.
 
+---
+
 Para consultar las guías técnicas de despliegue cloud en la infraestructura de Microsoft Azure, uvicorn y contenerización Docker del Agente conversacional, acceda de forma directa al saih-ai/README.md.
 ---
 
