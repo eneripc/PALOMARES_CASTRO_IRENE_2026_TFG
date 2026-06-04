@@ -1,6 +1,3 @@
-Aquí tienes el código fuente exacto en texto plano (*Markdown*). Puedes copiar todo el bloque de código de abajo y pegarlo directamente dentro de tu archivo `README.md` en GitHub:
-
-```markdown
 # Auditoría Continua y Análisis Predictivo de Cuentas por Pagar (CxP) mediante IA
 
 Este repositorio contiene la implementación integral del sistema desarrollado para la automatización analítica, detección estadística de anomalías y auditoría conversacional sobre extractos transaccionales SAP `FBL1N` en entornos corporativos de alta descentralización (caso de estudio aplicado a las Unidades de Explotación de Maya y Bávaro en Barceló Hotel Group).
@@ -109,7 +106,5 @@ Para realizar consultas rápidas o verificaciones gráficas sobre el marco teór
 * **Entorno de Aplicación de Campo:** Barceló Hotel Group (BHG) - Dirección Corporativa de Auditoría Interna.
 * **Tutoría Académica:** Dr. Alejandro Martín.
 * **Licencia:** Derechos estrictamente reservados y de carácter altamente confidencial para el uso, explotación e implantación exclusiva interna de la organización.
-
-```
 
 ```
