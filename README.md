@@ -1,17 +1,6 @@
-# Auditoría Continua y Análisis Predictivo de Cuentas por Pagar (CxP) mediante IA
-
-Este repositorio contiene la implementación integral del sistema desarrollado para la automatización analítica, detección estadística de anomalías y auditoría conversacional sobre extractos transaccionales SAP `FBL1N` en entornos corporativos de alta descentralización (caso de estudio aplicado a las Unidades de Explotación de Maya y Bávaro en Barceló Hotel Group).
-
-El ecosistema de software está estructurado de forma desacoplada en dos grandes vertientes: el núcleo analítico de experimentación, modelado y validación en la raíz de la solución, y la infraestructura del servicio *cloud* de producción empaquetada y contenerizada dentro del subdirectorio especializado `saih-ai/`.
-
----
-
-## Estructura General del Repositorio
-
-Aquí tienes el archivo README.md completo en texto plano (Markdown). He limpiado por completo los comentarios con # del árbol de directorios para que la estructura sea puramente visual, limpia y mucho más fácil de leer, manteniendo todas las correcciones formales requeridas para tu entrega:
 
 Markdown
-# Auditoría Continua y Análisis Predictivo de Cuentas por Pagar (CxP) mediante IA
+# Sistema de auditoría automatizada en Cuentas por Pagar en entornos SAP con aprendizaje automático y agente inteligente
 
 Este repositorio contiene la implementación integral del sistema desarrollado para la automatización analítica, detección estadística de anomalías y auditoría conversacional sobre extractos transaccionales SAP `FBL1N` en entornos corporativos de alta descentralización (caso de estudio aplicado a las Unidades de Explotación de Maya y Bávaro en Barceló Hotel Group).
 
